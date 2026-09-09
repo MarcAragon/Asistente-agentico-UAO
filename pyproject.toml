@@ -1,0 +1,34 @@
+[project]
+name = "asistente-agentico-uao"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "MarcAragon", email = "marco.aragon@uao.edu.co" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "chromadb>=1.5.9",
+    "fastapi>=0.141.1",
+    "langchain>=1.4.0",
+    "langchain-cerebras>=0.8.2",
+    "langchain-chroma>=1.1.0",
+    "pydantic-settings>=2.15.0",
+    "sentence-transformers>=6.0.1",
+    "uvicorn[standard]>=0.52.4",
+    "llama-cloud>=2.16.0"
+]
+
+[project.scripts]
+asistente-agentico-uao = "asistente_agentico_uao:main"
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"
+
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.6",
+]
