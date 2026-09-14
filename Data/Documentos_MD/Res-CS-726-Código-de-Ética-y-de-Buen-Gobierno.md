@@ -1,9 +1,3 @@
-SIGED
-
-**SG-1.1-FO01**
-
-TRD SG-1-1-056-001
-
 ## RESOLUCIÓN DEL CONSEJO SUPERIOR No. 726 DEL 08 DE JUNIO DE 2023
 
 ## POR LA CUAL SE EXPIDE EL CÓDIGO DE ÉTICA Y BUEN GOBIERNO DE LA UNIVERSIDAD AUTÓNOMA DE OCCIDENTE
@@ -585,12 +579,6 @@ j) Realizar el monitoreo a la gestión ética, reportando anualmente los resulta
 **ARTÍCULO 33º:** La dirección de Gestión Humana gestionará como requisito de la contratación laboral, la firma de la declaración de conocimiento y compromiso frente al cumplimiento del Código de Ética y Buen Gobierno. En el caso de detectar un posible conflicto de intereses, se analizará en primera instancia con el superior inmediato, con el fin de revisar la acción a tomar y de ser necesario, el caso debe ser llevado a la vicerrectoría correspondiente o a la Rectoría, que emite su concepto final para la vinculación, con las aclaraciones y acuerdos que correspondan. Esta información deberá ser dada a conocer al Comité de Ética y Buen Gobierno del Consejo Superior.
 
 ---
-
-SIGED
-
-**SG-1.1-F001**
-
-TRD SG-1-1-056-001
 
 ## RESOLUCIÓN DEL CONSEJO SUPERIOR No. 726 DEL 08 DE JUNIO DE 2023
 

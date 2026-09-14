@@ -1,9 +1,3 @@
-SIGED
-
-**SG-1.1-F001**
-
-TRD SG-1-1-056-001
-
 ## RESOLUCIÓN DEL CONSEJO SUPERIOR No. 686 DEL 13 DE DICIEMBRE DE 2021
 
 ## POR LA CUAL SE ACTUALIZA LA POLÍTICA DE TRATAMIENTO Y PROTECCIÓN DE DATOS PERSONALES EN LA UNIVERSIDAD AUTÓNOMA DE OCCIDENTE
@@ -151,44 +145,6 @@ Los datos personales que LA UNIVERSIDAD recolecta a través de los diferentes me
 * Adelantar la promoción y publicidad de actividades, productos y servicios académicos que ofrece la Universidad.
 
 * Establecer contacto con egresados para efectos de promoción y divulgación de actividades y eventos de interés institucional.
-
-<table>
-<thead>
-<tr>
-<th>ORICEN Y APROBACION</th>
-<th>Vo. Bo.</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Elaborado por: OFICIAL PROTECCIÓN DE DATOS</td>
-<td>YMC</td>
-</tr>
-<tr>
-<td>Revisado por: UNIDAD DE ARCHIVO Y GESTIÓN DOCUMENTAL</td>
-<td>ILSR</td>
-</tr>
-<tr>
-<td>Revisado por: CONTRALORIA</td>
-<td>LPVO</td>
-</tr>
-<tr>
-<td>Revisado por ASESOR JURÍDICO</td>
-<td>ODS</td>
-</tr>
-<tr>
-<td colspan="2">Aprobado por: CONSEJO SUPERIOR</td>
-</tr>
-</tbody>
-</table>
-
-www.uao.edu.co - buzon@uao.edu.co NIT: 890305881-1 - Cali, Colombia
-
----
-
-SIGED logo: Universidad Autónoma de Occidente logo: Acreditación Institucional Pagina 7 de 16SG-1.1-F001TRD SG-1-1-056-001
-
-# RESOLUCIÓN DEL CONSEJO SUPERIOR NO. 686 DEL 13 DE DICIEMBRE DE 2021
 
 * La adquisición de bienes y/o servicios para el normal desarrollo de las actividades institucionales orientadas a la prestación adecuada de los servicios de educación.
 * Desarrollar actividades legales, parafiscales, administrativas, y/o académicas relacionadas con la gestión de aspirantes, estudiantes, empleados, ex empleados, proveedores y contratistas.

@@ -1,11 +1,3 @@
-SIGED
-
-SG-1.1-F001 TRD SG-1-1-056-001
-
-Universidad Autónoma de Occidente logo
-
-Acreditación institucional de alta calidad logo
-
 RESOLUCIÓN DEL CONSEJO SUPERIOR No. 667 DEL 17 DE DICIEMBRE DE 2020
 
 # POR LA CUAL SE MODIFICA EL REGLAMENTO GENERAL DE ESTUDIANTES DE POSGRADOS
