@@ -1,9 +1,3 @@
-SIGED logo: Universidad Autónoma de Occidente Página 1 de 29
-
-**SG-1.1-FO01**
-
-TRD SG-1-1-056-001
-
 ## RESOLUCIÓN DE RECTORÍA No. 7714 DEL 27 DE AGOSTO DE 2021
 
 ## POR LA CUAL SE APRUEBA EL REGLAMENTO GENERAL DE ESTUDIANTES DE PROGRAMAS ACADÉMICOS DE PREGRADO MODALIDAD VIRTUAL
@@ -31,54 +25,6 @@ El RECTOR de la UNIVERSIDAD AUTÓNOMA DE OCCIDENTE en uso de las facultades que 
 **ARTÍCULO ÚNICO:** Aprobar el Reglamento General de Estudiantes de programas académicos de pregrado modalidad virtual, el texto siguiente:
 
 ## REGLAMENTO GENERAL DE ESTUDIANTES DE PROGRAMAS ACADÉMICOS DE PREGRADO MODALIDAD VIRTUAL
-
-<table>
-<thead>
-<tr>
-<th>ORIGEN Y APROBACIÓN</th>
-<th>Vo.Bo.</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Elaborado por: VICERRECTORÍA ACADÉMICA</td>
-<td>ACPL</td>
-</tr>
-<tr>
-<td>Revisado por UNIDAD DE ARCHIVO Y GESTIÓN DOCUMENTAL</td>
-<td>ILSR</td>
-</tr>
-<tr>
-<td>Revisado por: DIRECCIÓN DE LA COMUNIDAD</td>
-<td>SCC</td>
-</tr>
-<tr>
-<td>Revisado por: DIRECTOR GENERAL UAO VIRTUAL</td>
-<td>GAGT</td>
-</tr>
-<tr>
-<td>Revisado por: ASESOR JURÍDICO</td>
-<td>ODS</td>
-</tr>
-<tr>
-<td>Aprobado por: RECTORÍA</td>
-<td>ACPL</td>
-</tr>
-</tbody>
-</table>
-
-Personería jurídica, Res. No. 0618, de la Gobernación del Valle del Cauca del 20 de Febrero de 1970. Universidad Autónoma de Occidente, Res. No. 2766, del Ministerio de Educación Nacional, del 13 de noviembre de 2003. Acreditación Institucional de Alta Calidad, Res. No. 16740, del 24 de agosto de 2017, con vigencia hasta el 2021. Vigilada MinEducación.
-Campus Valle del Lili - Calle 25 No. 115-85 Km 2 vía a Jamundí www.uao.edu.co – buzon@uao.edu.co – PBX: (2) 3188000 NIT: 890305881-1 Cali, Colombia
-
----
-
-SIGED
-
-SG-1.1-FO01
-
-TRD SG-1-1-056-001
-
-## RESOLUCIÓN DE RECTORÍA No. 7714 DEL 27 DE AGOSTO DE 2021
 
 ### PREÁMBULO
 

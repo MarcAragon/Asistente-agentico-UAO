@@ -32,3 +32,8 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.6",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: pruebas de integración con modelo real de embeddings y Chroma (descarga/GPU)",
+]

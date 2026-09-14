@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Proyecto: índice vectorial generado (regenerable con scripts/ingest.py)
+Data/chroma/
+

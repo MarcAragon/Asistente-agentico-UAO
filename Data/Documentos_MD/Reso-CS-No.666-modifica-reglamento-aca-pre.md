@@ -1,9 +1,3 @@
-SIGED 1 de 29 SG-1.1-F001 TRD SG-1-1-056-001
-
-Universidad Autónoma de Occidente logo
-
-Acreditación institucional de alta calidad logo
-
 RESOLUCIÓN DEL CONSEJO SUPERIOR No. 666 DEL 17 DE DICIEMBRE DE 2020
 
 POR LA CUAL SE MODIFICA EL REGLAMENTO GENERAL DE ESTUDIANTES DE PREGRADO PROFESIONAL
@@ -728,22 +722,6 @@ Comprende dos periodos académicos semestrales, durante los cuales el estudiante
 ## ARTÍCULO 69°. INGRESO A PRUEBA ACADÉMICA
 
 Un estudiante ingresa a prueba académica por primera vez cuando su promedio ponderado acumulado es menor a tres punto tres (3.3).
-
-<table><thead><tr><th>ORICEN Y APROBACION</th><th>Vo. Bo.</th></tr></thead><tbody><tr><td>Elaborado por: VICERRECTORÍA ACADÉMICA</td><td>ACPL</td></tr><tr><td>Revisado por UNIDAD DE ARCHIVO Y GESTIÓN DOCUMENTAL</td><td>ILSR</td></tr><tr><td>Aprobado por: CONSEJO SUPERIOR</td><td></td></tr></tbody></table>
-
-www.uao.edu.co - buzon@uao.edu.co - PBX: (2) 318 8000
-NIT: 890305881-1 - Cali, Colombia
-
----
-
-SIGED
-
-icon: SG-1.1-F001
-
-TRD SG-1-1-056-001
-25
-
-## RESOLUCIÓN DEL CONSEJO SUPERIOR No. 666 DEL 17 DE DICIEMBRE DE 2020
 
 Un estudiante ingresa a prueba académica por segunda vez cuando su promedio ponderado acumulado de prueba académica es menor a tres punto tres (3.3).
 

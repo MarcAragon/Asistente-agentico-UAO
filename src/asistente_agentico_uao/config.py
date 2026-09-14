@@ -35,10 +35,21 @@ class Settings(BaseSettings):
     top_k: int = 5
     min_similarity: float = 0.35
 
-    # --- Embeddings ---
-    embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    # --- Embeddings (E5: requiere prefijos query:/passage:, ver embeddings.py) ---
+    embedding_model: str = "intfloat/multilingual-e5-base"
     # Vacío -> detección automática (CUDA -> ROCm -> CPU).
     embedding_device: str = ""
+    embedding_batch_size: int = 16
+
+    # --- Chunking (Fase 2) ---
+    # Objetivo de tokens del chunk final (incluye el prefijo contextual).
+    chunk_size_tokens: int = 400
+    # Techo duro del chunk final; debe quedar bajo max_seq_length del modelo (512).
+    chunk_max_tokens: int = 450
+    # Oraciones finales que se repiten en el chunk siguiente (solo intra-sección).
+    chunk_overlap_tokens: int = 70
+    # Chunks menores se fusionan con el anterior dentro de la misma sección.
+    chunk_min_tokens: int = 80
 
     # --- LLM (Cerebras) ---
     llm_model: str = "qwen-3.8-27b"

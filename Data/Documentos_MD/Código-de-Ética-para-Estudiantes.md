@@ -1,9 +1,3 @@
-SIGED
-
-SG-1.1-FO01
-
-TRD SG-1-1-056-001
-
 # CÓDIGO DE ÉTICA PARA ESTUDIANTES
 
 Resolución de Consejo Académico No. 6602 de 2017 y Resolución de Rectoría No. 7909 de marzo 7 de 2023
@@ -74,11 +68,7 @@ e. El cuidado de los espacios físicos, y demás bienes de la Universidad
 
 ---
 
-SIGED Página 3 de 12
-
-label: SG-1.1-FO01
-
-TRD SG-1-1-056-001
+Página 3 de 12
 
 ## CÓDIGO DE ÉTICA PARA ESTUDIANTES
 
