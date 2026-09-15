@@ -9,39 +9,34 @@ Uso:
 Idempotente: los IDs son sha256(doc_name + chunk_index); correr dos veces
 reemplaza los mismos chunks en vez de duplicarlos. Al final corre una query
 de humo (desactivable con --no-smoke).
+
+Desde la Fase 5 la lógica vive en ``ingestion.pipeline`` (compartida con el
+servicio gRPC ``IndexAdmin``); este CLI es un wrapper de consola.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-import time
-from pathlib import Path
 
 from asistente_agentico_uao.config import settings
 from asistente_agentico_uao.embeddings import (
-    embed_passages,
     embed_query,
     get_model,
     max_seq_length,
     token_counter,
 )
-from asistente_agentico_uao.ingestion.chunk import chunk_markdown
-from asistente_agentico_uao.vectorstore import (
-    COLLECTION_NAME,
-    get_collection,
-    prune_missing_docs,
-    upsert_chunks,
+from asistente_agentico_uao.ingestion.pipeline import (
+    IngestSummary,
+    ingest_documents,
+    markdown_paths,
+    prune_index,
 )
+from asistente_agentico_uao.vectorstore import COLLECTION_NAME, get_collection
 
 
-def _pdf_stems() -> dict[str, str]:
-    """Mapa stem -> nombre real del PDF (para doc_name de citación)."""
-    return {p.stem: p.name for p in settings.docs_dir.glob("*.pdf")}
-
-
-def _resolve_doc_name(md_path: Path, stems: dict[str, str]) -> str:
-    return stems.get(md_path.stem, md_path.stem)
+def _print_row(s: IngestSummary) -> None:
+    print(f"{s.doc_name:<72}{s.n_chunks:>7}{s.seconds:>7.1f}")
 
 
 def main() -> int:
@@ -60,10 +55,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    mds = sorted(settings.markdown_dir.glob("*.md"))
-    if args.file:
-        mds = [p for p in mds if args.file.lower() in p.name.lower()]
-    if not mds:
+    if not markdown_paths(args.file):
         print(f"No hay markdown en {settings.markdown_dir}", file=sys.stderr)
         return 1
 
@@ -73,61 +65,34 @@ def main() -> int:
         f"[modelo] {settings.embedding_model} | max_seq_length={seq_len} | "
         f"batch={settings.embedding_batch_size} | device={model.device}"
     )
-    if settings.chunk_max_tokens > seq_len - 4:
-        print(
-            f"ERROR: chunk_max_tokens={settings.chunk_max_tokens} excede "
-            f"max_seq_length={seq_len}: los chunks se truncarían.",
-            file=sys.stderr,
-        )
-        return 1
 
-    count_tokens = token_counter()
-    stems = _pdf_stems()
     collection = get_collection(rebuild=args.rebuild)
-
-    total_chunks = 0
-    total_started = time.perf_counter()
     header = f"{'documento':<72}{'chunks':>7}{'p50':>6}{'p90':>6}{'max':>6}{'seg':>7}"
     print(f"\n{header}\n{'-' * len(header)}")
-    for md in mds:
-        doc_name = _resolve_doc_name(md, stems)
-        started = time.perf_counter()
-        chunks = chunk_markdown(
-            md.read_text(encoding="utf-8"),
-            doc_name=doc_name,
-            count_tokens=count_tokens,
-            target_tokens=settings.chunk_size_tokens,
-            max_tokens=settings.chunk_max_tokens,
-            min_tokens=settings.chunk_min_tokens,
-            overlap_tokens=settings.chunk_overlap_tokens,
+    try:
+        summaries = ingest_documents(
+            file_match=args.file,
+            rebuild=args.rebuild,
+            model=model,
+            seq_len=seq_len,
+            count_tokens=token_counter(),
+            collection=collection,
+            on_summary=_print_row,
         )
-        if not chunks:
-            print(f"{md.name:<72}{'0':>7}")
-            continue
-        vectors = embed_passages([c.text for c in chunks])
-        upsert_chunks(collection, chunks, vectors)
-        elapsed = time.perf_counter() - started
-        toks = sorted(c.n_tokens for c in chunks)
-        p50 = toks[len(toks) // 2]
-        p90 = toks[min(len(toks) - 1, int(len(toks) * 0.9))]
-        print(
-            f"{md.name:<72}{len(chunks):>7}{p50:>6}{p90:>6}{toks[-1]:>6}{elapsed:>7.1f}"
-        )
-        total_chunks += len(chunks)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
+    total_chunks = sum(s.n_chunks for s in summaries)
     print(
-        f"\nTotal: {total_chunks} chunks en {len(mds)} doc(s) "
-        f"({time.perf_counter() - total_started:.1f}s)"
+        f"\nTotal: {total_chunks} chunks en {len(summaries)} doc(s)"
     )
     print(
         f"Colección '{COLLECTION_NAME}': {collection.count()} chunks en {settings.chroma_dir}"
     )
 
     if args.prune:
-        valid = {
-            _resolve_doc_name(p, stems) for p in settings.markdown_dir.glob("*.md")
-        }
-        removed = prune_missing_docs(collection, valid)
+        removed = prune_index(collection)
         print(f"Prune: {removed} chunk(s) de documentos ausentes eliminados")
 
     if not args.no_smoke:

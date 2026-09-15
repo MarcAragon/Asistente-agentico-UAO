@@ -16,7 +16,10 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "sentence-transformers>=6.0.1",
     "uvicorn[standard]>=0.52.4",
-    "llama-cloud>=2.16.0"
+    "llama-cloud>=2.16.0",
+    "grpcio>=1.83.1",
+    "grpcio-tools>=1.83.1",
+    "protobuf>=7.36.1",
 ]
 
 [project.scripts]
@@ -32,6 +35,10 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.6",
 ]
+
+[tool.ruff]
+# Código generado por protoc/grpc_tools: no se lintea ni reformatea.
+extend-exclude = ["src/asistente_agentico_uao/grpc_impl/stubs"]
 
 [tool.pytest.ini_options]
 markers = [

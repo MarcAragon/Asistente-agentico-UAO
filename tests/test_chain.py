@@ -100,7 +100,6 @@ def test_extract_citations_deduplica_y_tolera_espacios():
 def test_extract_citations_sin_citas():
     assert extract_citations("respuesta sin citas") == []
 
-
 # --- build_sources ----------------------------------------------------------
 
 
@@ -247,3 +246,4 @@ def test_prompt_incluye_pregunta_contexto_y_no_info():
     assert "¿mi pregunta?" in prompt
     assert "contenido del contexto." in prompt
     assert NO_INFO_MESSAGE in prompt
+
