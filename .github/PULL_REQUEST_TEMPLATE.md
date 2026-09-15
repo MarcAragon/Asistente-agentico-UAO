@@ -1,29 +1,30 @@
 # 📋 Plantilla de Pull Request — Asistente Agéntico RAG UAO
 
 <!--
-Plantilla pre-llenada con el contexto de la FASE 4 (LLM Cerebras + cadena RAG),
-rama feat--lmm_integration. Al reutilizarla para otra fase, reponer los
-checkbox y sustituir el contenido de las secciones 3-9.
+Plantilla pre-llenada con el contexto de la PR de TESTS de la FASE 4
+(pruebas permanentes de la integración LLM), rama test. Al reutilizarla
+para otra fase, reponer los checkbox y sustituir el contenido de las
+secciones 3-9.
 Instrucciones:
 - Completa TODAS las secciones. Si una no aplica, escribe "N/A" y justifica.
 - El título de la PR debe seguir Convencional Commits:
   feat: | fix: | refactor: | docs: | chore: | test:
-  Ej: "feat: cadena RAG con LLM Cerebras y rotación de claves API"
+  Ej: "test: pruebas permanentes de la integración LLM y cadena RAG (F4)"
 - Elimina los comentarios HTML antes de abrir la PR.
 -->
 
 ## 1. 🧩 Tipo de Pull Request
 
-**Título sugerido:** `feat: cadena RAG con LLM Cerebras y rotación de claves API (Fase 4)`
+**Título sugerido:** `test: pruebas permanentes de la integración LLM y cadena RAG (Fase 4)`
 
 Marca **uno** como principal (y otros si esta PR es mixta):
 
-- [x] `feat` — Nueva funcionalidad (pipeline, ingesta, recuperación, API…)
+- [ ] `feat` — Nueva funcionalidad (pipeline, ingesta, recuperación, API…)
 - [ ] `fix` — Corrección de un bug
 - [ ] `refactor` — Cambio interno sin alterar comportamiento externo
 - [ ] `docs` — Solo documentación
 - [ ] `chore` — Infraestructura, dependencias, configuración, CI
-- [ ] `test` — Adición o corrección exclusiva de pruebas
+- [x] `test` — Adición o corrección exclusiva de pruebas
 
 ---
 
@@ -31,41 +32,39 @@ Marca **uno** como principal (y otros si esta PR es mixta):
 
 Selecciona todas las áreas que toca esta PR:
 
-- [x] **Configuración central** (`src/asistente_agentico_uao/config.py`, `.env.example`, `.gitignore`)
+- [ ] **Configuración central** (`src/asistente_agentico_uao/config.py`, `.env.example`, `.gitignore`)
 - [ ] **Preprocesamiento de documentos** (`scripts/llama_cloud_parsing.py`, `Data/Documentos_MD/`)
 - [ ] **Ingesta & Chunking** (índice de embeddings, Chroma — fases futuras)
 - [ ] **Recuperación & Embeddings** (`sentence-transformers`, `chromadb`)
-- [x] **Generación / LLM** (`langchain-cerebras`, modelos de Cerebras)
+- [ ] **Generación / LLM** (`langchain-cerebras`, modelos de Cerebras)
 - [ ] **API / Servicio** (`fastapi`, `uvicorn`)
-- [x] **Scripts & CLI** (`scripts/`)
-- [ ] **Pruebas Unitarias** (`tests/`, `pytest`)
+- [ ] **Scripts & CLI** (`scripts/`)
+- [x] **Pruebas Unitarias** (`tests/`, `pytest`)
 - [ ] **Infraestructura & Empaquetado** (`pyproject.toml`, `uv.lock`, `uv_build`, `.gitignore`)
-- [x] **Documentación** (`README.md`, `plan-trabajo-tecnico.md`, licencia)
+- [ ] **Documentación** (`README.md`, `plan-trabajo-tecnico.md`, licencia)
 
 ---
 
 ## 3. 📚 Descripción de los Cambios
 
-**Tarea / fase asociada:** Fase 4 del `plan-trabajo-tecnico.md`: LLM Cerebras + cadena RAG (tareas 4.1–4.6).
+**Tarea / fase asociada:** cierre de la deuda de pruebas de la Fase 4 del `plan-trabajo-tecnico.md` (LLM Cerebras + cadena RAG, tareas 4.1–4.6). No modifica código de producción: solo añade pruebas.
 <!-- Issue relacionado, si existe: Closes #NN -->
 
 #### 🎯 Motivación y contexto
-Con la Fase 3 completa (recuperación top-5 validada sobre el índice real de 1284 chunks), faltaba la capa de generación: convertir los fragmentos recuperados en respuestas con citas verificables sin alucinar. Además, el hallazgo de la Fase 3 obligaba a replantear el "no sé": las similitudes coseno de E5 son altas siempre (~0.81 incluso para preguntas fuera de dominio como "receta de arepas"), por lo que el umbral `min_similarity=0.35` no discrimina dominio y subirlo a ciegas excluiría chunks válidos (los in-dominio puntúan 0.81–0.88). La defensa se trasladó al prompt: el LLM juzga si el contexto responde; el umbral queda como piso duro y su recalibración se pospone a F6 con el banco de preguntas. Se descartó el re-ranking y el LCEL con ramificación pura (`RunnableBranch`) por legibilidad/testabilidad: la rama "no gastar tokens" es explícita en Python y el LCEL se reserva para la parte generativa.
+La PR de la Fase 4 registró una **deuda aceptada**: sin tests permanentes de la cadena RAG ni de la rotación de claves (decisión del usuario en esa fase; cubierto con humo manual y 18 pruebas temporales ejecutadas y borradas: 9 de rotación + 9 de cadena). Antes de construir la Fase 5 (API REST sobre `answer_question`) y la Fase 6 (evaluación con banco de preguntas), esa lógica crítica —rotación de claves ante límites de cuota, mapeo de citas a fuentes, "no gastar tokens" sin contexto y degradación a no-información— necesita red de seguridad permanente. Esta PR la salda con 23 pruebas unitarias que reproducen y amplían la cobertura de las pruebas temporales de F4.
 
 #### 📝 Resumen de cambios
-- **`llm.py` (nuevo)**: `CerebrasLLM` envuelve `ChatCerebras` con rotación de claves API y reintentos con backoff; `NO_INFO_MESSAGE` centralizado; `get_llm()` singleton.
-- **`chain.py` (nuevo)**: cadena RAG LCEL (`prompt | llm | StrOutputParser`) + orquestación `answer_question() -> RagAnswer` con umbral pre-LLM, post-proceso de citas (`build_sources`) y guardia de respuesta vacía.
-- **`scripts/ask.py` (nuevo)**: CLI end-to-end (pregunta ad-hoc o banco de 7 humos: 5 in-dominio + 2 fuera de dominio).
-- **`config.py` / `.env.example`**: nuevos parámetros del LLM (`llm_temperature`, `llm_max_tokens`, `llm_disable_reasoning`, `llm_max_retries`) y `cerebras_api_keys` para rotación.
-- **`plan-trabajo-tecnico.md`**: Fase 4 marcada completada, hallazgos F4 documentados, riesgo nuevo en §6, §8 apuntando a Fase 5.
+- **`tests/test_llm.py` (nuevo, 10 pruebas)**: `collect_api_keys` (combinación/deduplicación/vacío) y `CerebrasLLM.invoke` (rotación 429/401 entre claves, backoff ante 429/timeout con una sola clave, agotamiento acotado, relanzamiento de errores no recuperables y de 401 sin más claves, `RuntimeError` sin claves).
+- **`tests/test_chain.py` (nuevo, 13 pruebas)**: `_excerpt`, `extract_citations` (deduplicación/espacios), `build_sources` (mapeo de citas verificables, descarte de citas no verificables con trazabilidad, coincidencia flexible por sección, `sources=[]` en no-información) y `answer_question` (umbral pre-LLM sin gastar tokens, `used_fallback`, degradación de respuesta vacía, flujo feliz con citas y verificación del prompt renderizado).
+- **Código de producción**: sin cambios (`llm.py`, `chain.py`, `config.py` intactos). Sin dependencias nuevas.
 
 #### 🔧 Detalles técnicos relevantes
-- **Rotación de claves API (4.6)**: ante 429/cuota o 401/403, `CerebrasLLM` rota inmediatamente a la siguiente clave de `CEREBRAS_API_KEY` + `CEREBRAS_API_KEYS` (separadas por coma/`;`/espacio, deduplicadas) recreando el cliente. Con una sola clave: 429 reintenta con backoff exponencial (1s/2s/4s, los límites por segundo son transitorios) y 401/403 se relanza (reintentar no lo corrige). Timeout/conexión/5xx siempre reintentan con backoff sin rotar.
-- **Hallazgo F4 — modelo de razonamiento**: `qwen-3.8-27b` gasta por defecto los `max_tokens` en tokens de thinking y devuelve `content` vacío (`finish_reason=length`, `reasoning_tokens=1024`; ocurrió en 2 de 7 humos). Mitigado con `disable_reasoning=True` vía `extra_body` (configurable con `UAO_RAG__LLM_DISABLE_REASONING=1`) + guardia en `chain.py` que degrada respuesta vacía a no-información. Efecto colateral: latencia bajó de ~2-12 s a ~0.3-0.6 s por pregunta.
-- **Prompt de síntesis (ES)**: rol de asistente de normativa UAO con reglas: responder SOLO con el contexto `[1]..[k]`, citar como `(Documento, sección)`, copiar literalmente `NO_INFO_MESSAGE` si el contexto no alcanza, no inventar y declarar qué falta si el contexto es parcial.
-- **Post-proceso de citas**: regex tolerante extrae `(Documento, sección)` y las mapea a los chunks recuperados (coincidencia exacta, luego flexible por sección contenida, luego por documento); las citas no verificables se descartan (nunca se inventan fuentes); si la respuesta no es de no-información y no hay citas verificables, se devuelven todos los chunks recuperados por trazabilidad.
-- **Umbral pre-LLM (4.4)**: si `retrieve()` devuelve `[]` no se llama al LLM. Con el hallazgo de F3 casi nunca dispara; la defensa real contra fuera de dominio es el prompt (verificada de facto: 2/2 preguntas fuera de dominio responden el mensaje exacto sin alucinar).
-- Sin dependencias nuevas: `langchain-cerebras` ya estaba en `pyproject.toml`.
+- **Cero llamadas reales a la API de Cerebras**: `ChatCerebras` se reemplaza por un stub (`FakeChatCerebras`) inyectado en `sys.modules` como módulo falso `langchain_cerebras`. Esto además evita importar la librería real en los tests y permite verificar un comportamiento clave: que la rotación **recrea el cliente** con la nueva clave (se registra la `api_key` de cada cliente construido).
+- **Backoff sin esperas**: `time.sleep` se sustituye por un grabador (`llm_env.sleeps`), de modo que los tests verifican los retardos exactos del backoff exponencial (1s, 2s) sin ralentizar la suite (0.24 s para las 23 pruebas).
+- **Errores falsos con `status_code`**: `FakeHTTPError` imita el contrato del SDK de OpenAI (429/401/403/408/400) que `llm.py` usa para clasificar.
+- **Cadena completa con dobles de prueba**: `answer_question` se ejercita con `FakeRetriever`, `FakeLLM` (que captura el prompt renderizado con `to_string()`) y `GuardLLM` (falla el test si el LLM llega a invocarse sin contexto: garantiza la tarea 4.4 "no gastar tokens").
+- **Configuración real en los tests de rotación**: se construyen `Settings` con kwargs explícitos (claves ficticias `k1`/`k2`, `llm_max_retries` controlado), sin tocar el `.env` ni variables de entorno.
+- Convenciones del repo respetadas: nombres y docstrings en español, Arrange/Act/Assert, `ClassVar` en atributos de clase del stub (limpieza `ruff RUF012`).
 
 ---
 
@@ -74,15 +73,7 @@ Con la Fase 3 completa (recuperación top-5 validada sobre el índice real de 12
 - [x] Esta PR **NO** rompe compatibilidad (cambios retrocompatibles)
 - [ ] Esta PR introduce **cambios que rompen** (documentar abajo)
 
-**Si hay breaking changes / migración, documenta:**
-- Variables de entorno nuevas (todas opcionales, con default funcional):
-  - `UAO_RAG__LLM_TEMPERATURE=0.1` — temperatura de síntesis.
-  - `UAO_RAG__LLM_MAX_TOKENS=1024` — techo de tokens de la respuesta.
-  - `UAO_RAG__LLM_DISABLE_REASONING=1` — desactiva el thinking de qwen-3.8 (sin esto, respuestas vacías).
-  - `UAO_RAG__LLM_MAX_RETRIES=3` — reintentos con backoff por clave.
-  - `CEREBRAS_API_KEYS=clave2,clave3` — claves extra para rotación ante límites de cuota.
-- Pasos de migración para quien tenga el repo clonado: ninguno obligatorio (`uv sync` + `.env` con `CEREBRAS_API_KEY` basta). Opcional: añadir `CEREBRAS_API_KEYS` para redundancia ante límites del free tier.
-- Archivos/datos generados incluidos: ninguno nuevo (el índice `Data/chroma/` y `Data/Documentos_MD/` son de fases anteriores, gitignored).
+**Si hay breaking changes / migración, documenta:** N/A. La PR solo añade dos archivos bajo `tests/`; no toca código de producción, configuración, dependencias ni el contrato de `answer_question`/`CerebrasLLM`. No introduce variables de entorno nuevas y no requiere pasos de migración (`uv sync` basta). No genera archivos ni datos nuevos (los dobles de prueba son efímeros y en memoria).
 
 ---
 
@@ -90,30 +81,24 @@ Con la Fase 3 completa (recuperación top-5 validada sobre el índice real de 12
 
 - [x] Ningún secreto (API keys, contraseñas, tokens) está escrito en el código ni en archivos rastreados
 - [x] Los secretos viven únicamente en `.env` (gitignored) o en variables de entorno
-- [x] `.env.example` está actualizado y **rastreado** como plantilla documental
-- [x] Las claves leídas en código tienen valores por defecto vacíos y validación en tiempo de ejecución (`CerebrasLLM.invoke` lanza `RuntimeError` con mensaje claro si no hay claves)
+- [x] `.env.example` no requirió cambios en esta PR (ya estaba actualizado en la Fase 4)
+- [x] Las claves usadas en los tests son ficticias (`"k1"`, `"k2"`) y pasan solo por dobles de prueba: los tests **nunca** construyen un cliente real ni tocan la red
 
-Variables que esta PR introduce:
-
-| Variable | Para qué | Dónde obtenerla |
-|---|---|---|
-| `CEREBRAS_API_KEY` (ya existía) | Clave principal de Cerebras | https://cloud.cerebras.ai |
-| `CEREBRAS_API_KEYS` | Claves adicionales (rotación ante 429/401/403) | https://cloud.cerebras.ai (una por cuenta) |
-| `UAO_RAG__LLM_*` | Parámetros del LLM (ver §4) | N/A (defaults funcionales) |
+Variables que esta PR introduce: **ninguna** (no hay cambios de configuración). Las pruebas de rotación usan claves de mentira inyectadas vía `Settings(...)` en memoria, sin leer el `.env` real ni variables del sistema.
 
 ---
 
 ## 6. ✅ Lista de Chequeo Pre-PR (Estándares del Curso UAO)
 
 - [x] **Entorno de ejecución (`uv`):** Todo se ejecutó y probó exclusivamente con **`uv`** y la versión de Python fijada en `.python-version` / `pyproject.toml` (≥ 3.14).
-- [x] **Sin warnings:** `uv run python scripts/ask.py` corre limpio (solo avisos de terceros: token opcional del HF Hub y barra de progreso de carga del modelo).
-- [x] **Lint (`ruff`):** `uv run ruff check src scripts` pasa sin errores ni advertencias.
-- [x] **Control de exclusiones (`.gitignore`):** `.env`, `.venv`, `__pycache__/`, modelos pesados y datos regenerables voluminosos **NO** están rastreados por Git. `.env.example` **SÍ** lo está.
-- [x] **Estructura del código:** Fuente en `src/asistente_agentico_uao/` (`llm.py`, `chain.py`), utilidades/CLI en `scripts/` (`ask.py`), pruebas en `tests/` (cuando existan).
-- [x] **Pruebas unitarias (`pytest`):** `uv run pytest` pasa al 100 % (21/21: los tests permanentes de fases previas, sin regresiones). **Justificación sin tests nuevos permanentes:** decisión explícita del usuario para esta fase; se validó con pruebas temporales (9 de rotación de claves + 9 de cadena, ejecutadas y borradas) y con humo real end-to-end. Los tests permanentes de la cadena se añadirán en F6 con el banco de evaluación.
-- [x] **Clean Code & Refactorización:** Funciones cohesivas con responsabilidad única, nombres descriptivos, docstrings en módulos y funciones públicas, sin código muerto ni comentado.
-- [x] **Un solo punto de configuración:** Los valores configurables se leen vía `Settings` (`config.py`); ningún módulo parsea `.env` por su cuenta ni hardcodea rutas o claves.
-- [x] **Reproducibilidad:** `uv sync` en un clon limpio instala todo lo necesario para ejecutar esta PR (sin dependencias nuevas).
+- [x] **Sin warnings:** `uv run pytest` corre limpio (sin warnings de pytest ni deprecations); los dobles de prueba evitan importar `sentence-transformers`/`langchain-cerebras` en los tests nuevos.
+- [x] **Lint (`ruff`):** `uv run ruff check src scripts tests` pasa sin errores ni advertencias (se corrigió `RUF012` con `ClassVar` en el stub).
+- [x] **Control de exclusiones (`.gitignore`):** Sin cambios; `.env`, `.venv`, `__pycache__/`, `.pytest_cache/` y datos regenerables siguen fuera del rastreo. Solo se añaden `tests/test_llm.py` y `tests/test_chain.py`.
+- [x] **Estructura del código:** Pruebas en `tests/` siguiendo las convenciones de los tests previos (fakes inyectados, `monkeypatch`, docstrings en español, Arrange/Act/Assert). Código de producción intacto en `src/asistente_agentico_uao/`.
+- [x] **Pruebas unitarias (`pytest`):** `uv run pytest` pasa al 100 %: **47/47** (23 nuevas + 24 previas, sin regresiones). Las pruebas nuevas no consumen tokens ni llaman a la API de Cerebras (stub de `ChatCerebras` + `time.sleep` grabado).
+- [x] **Clean Code & Refactorización:** Cada prueba cubre un comportamiento único con nombre descriptivo en español; helpers pequeños (`make_chunk`, `make_config`, `raise_error`); sin código muerto ni comentado.
+- [x] **Un solo punto de configuración:** Los tests de rotación usan `Settings` real con kwargs explícitos; ningún test parsea `.env` por su cuenta ni hardcodea rutas del proyecto.
+- [x] **Reproducibilidad:** `uv sync` en un clon limpio instala todo lo necesario para ejecutar esta PR (sin dependencias nuevas; `pytest` ya estaba en el grupo `dev`).
 
 ---
 
@@ -122,65 +107,72 @@ Variables que esta PR introduce:
 <!-- Pega la salida real (recortada si es larga) de los comandos que ejecutaste. No describas de memoria: pega lo que la terminal imprimió. -->
 
 ```
-# Comando 1 (suite completa + lint):
+# Comando 1 (suite completa de tests, incluidas las 23 nuevas):
 $ uv run pytest -q
-21 passed in 1.10s
+...............................................                          [100%]
+47 passed in 1.23s
+
+# Comando 2 (solo los tests nuevos de Fase 4):
+$ uv run pytest tests/test_llm.py tests/test_chain.py -v
+tests/test_llm.py::test_collect_api_keys_combina_y_deduplica PASSED      [  4%]
+tests/test_llm.py::test_sin_claves_mensaje_claro PASSED                  [  8%]
+tests/test_llm.py::test_429_rota_a_segunda_clave PASSED                  [ 13%]
+tests/test_llm.py::test_401_rota_y_la_segunda_funciona PASSED            [ 17%]
+tests/test_llm.py::test_401_con_una_sola_clave_se_relaza PASSED          [ 21%]
+tests/test_llm.py::test_429_con_una_sola_clave_reintenta_con_backoff PASSED [ 26%]
+tests/test_llm.py::test_timeout_reintenta_misma_clave_sin_rotar PASSED   [ 30%]
+tests/test_llm.py::test_cuota_en_todas_las_claves_agota_y_relaza PASSED  [ 34%]
+tests/test_llm.py::test_error_no_transitorio_se_relaza_sin_rotar PASSED  [ 39%]
+tests/test_llm.py::test_collect_api_keys_vacio PASSED                    [ 43%]
+tests/test_chain.py::test_excerpt_colapsa_saltos_y_recorta PASSED        [ 47%]
+tests/test_chain.py::test_extract_citations_deduplica_y_tolera_espacios PASSED [ 52%]
+tests/test_chain.py::test_extract_citations_sin_citas PASSED             [ 56%]
+tests/test_chain.py::test_citas_se_mapean_a_fuentes PASSED               [ 60%]
+tests/test_chain.py::test_cita_no_verificable_se_descarta PASSED         [ 65%]
+tests/test_chain.py::test_cita_con_variacion_de_seccion_se_verifica PASSED [ 69%]
+tests/test_chain.py::test_no_info_retorna_sources_vacios PASSED          [ 73%]
+tests/test_chain.py::test_chunks_vacios_retorna_sources_vacios PASSED    [ 78%]
+tests/test_chain.py::test_umbral_pre_llm_no_gasta_tokens PASSED          [ 82%]
+tests/test_chain.py::test_llm_no_info_marca_fallback PASSED              [ 86%]
+tests/test_chain.py::test_respuesta_vacia_se_degrada_a_no_info PASSED    [ 91%]
+tests/test_chain.py::test_respuesta_con_citas_genera_sources PASSED      [ 95%]
+tests/test_chain.py::test_prompt_incluye_pregunta_contexto_y_no_info PASSED [100%]
+============================== 23 passed in 0.24s ==============================
+
+# Comando 3 (lint sobre todo el repo):
 $ uv run ruff check src scripts tests
 All checks passed!
-
-# Comando 2 (pruebas temporales de rotación de claves — ejecutadas y luego borradas):
-$ uv run pytest tests/test_rotacion_temporal.py -q
-9 passed in 1.02s
-# Cubre: 429→rota a clave 2; 401→rota; cuota en todas las claves→backoff
-# sobre la última y agotamiento acotado; 401 con una clave→se relanza;
-# timeout→reintenta la misma clave; 400→se relanza sin rotar; sin
-# claves→RuntimeError con mensaje claro.
-
-# Comando 3 (humo end-to-end sobre el índice real, 1284 chunks):
-$ uv run python scripts/ask.py
-Pregunta: ¿Que pasa si repruebo tres veces una misma asignatura?
-Respuesta (qwen-3.8-27b):
-Si repruebas tres veces una misma asignatura, ingresas a prueba académica
-por repitencia (Res-CA-6744-Modifica-Reglamento-de-Pregrado.pdf,
-ARTÍCULO 70º-2. INGRESO A PRUEBA ACADÉMICA POR REPITENCIA:)...
-Fuentes (2):
-  1. sim=0.882  Res-CA-6744-Modifica-Reglamento-de-Pregrado.pdf — ARTÍCULO 70º-2...
-  2. sim=0.864  Res-CA-6744-Modifica-Reglamento-de-Pregrado.pdf — ARTÍCULO 70º-3...
-
-Pregunta: ¿Cuál es la receta traditional de las arepas antioqueñas?
-Respuesta (qwen-3.8-27b):
-No tengo información suficiente en la normativa UAO para responder esa pregunta.
-  [fallback: sin llamada al LLM o respuesta de no-información]
-Fuentes (0):
 ```
 
-Resultado del criterio de aceptación F4 (7 humos): "tres repitencias" cita Art. 70º-2/70º-3 de Res-CA-6744; "requisitos magíster" cita Arts. 35º/13º de Res-CA-6605 e indica explícitamente qué no está en el contexto; "transferencia interna" cita Arts. 19°/17° (Reso-CS-666), 23º (Res-CA-6603) y 16º (Res. 7714), mapeados a 4 fuentes; las 2 fuera de dominio (arepas, Mundial 2022) responden el mensaje exacto de no-información sin alucinar.
+Criterio de aceptación de esta PR: la deuda de pruebas registrada en la Fase 4 queda saldada — la rotación de claves, el post-proceso de citas y la orquestación `answer_question` tienen cobertura permanente que corre en ~1.2 s sin red ni tokens.
 
 #### 🔄 Pasos para replicar / probar manualmente
-1. `git clone ... && cd Asistente-agentico-UAO && uv sync`
-2. `cp .env.example .env` y completar `CEREBRAS_API_KEY` (opcional: `CEREBRAS_API_KEYS` para rotación).
-3. Verificar que el índice existe: `uv run python scripts/smoke_retrieval.py` (o regenerarlo con `uv run python scripts/ingest.py`).
-4. Humo end-to-end: `uv run python scripts/ask.py` (banco de 7) o `uv run python scripts/ask.py "¿pregunta ad-hoc?"`.
+1. `git clone ... && cd Asistente-agentico-UAO && uv sync` (no se necesita `CEREBRAS_API_KEY` ni índice de Chroma para los tests nuevos).
+2. Ejecutar solo las pruebas nuevas: `uv run pytest tests/test_llm.py tests/test_chain.py -v`.
+3. Ejecutar la suite completa con lint: `uv run pytest -q && uv run ruff check src scripts tests`.
+4. (Opcional) Verificar que nada cambió en producción: `git diff <rama-base> -- src/ scripts/` debe estar vacío.
 
 #### 🖼️ Capturas / salida visual (opcional)
-Salida completa del humo F4 registrada en la sesión de trabajo: 7 preguntas con tiempos de 0.3–0.6 s por respuesta (tras desactivar el razonamiento) y fuentes con similitud 0.83–0.88.
+N/A: son pruebas unitarias sin salida visual; la evidencia es la salida de pytest/ruff pegada arriba.
 
 ---
 
 ## 8. 👀 Notas para el Revisor
 
-- **Umbral `min_similarity` NO se recalibró** (sigue en 0.35): deliberado. Con similitudes E5 de ~0.81 fuera de dominio, cualquier umbral absoluto erraría en ambos sentidos; la recalibración se hace en F6 con el banco de ~30 preguntas. La mitigación actual es el prompt de solo-contexto, ya verificada con 2 preguntas fuera de dominio.
-- **2 preguntas in-dominio responden "no sé"** ("cancelaciones 2026-2", "créditos mínimos posgrado"): el LLM juzgó correctamente que los chunks recuperados eran de otro programa/periodo. Anotado para F6 (evaluar recall del banco y si las tablas de calendario contienen la fecha puntual); no es un defecto de la cadena.
-- **`disable_reasoning=True` por defecto**: decisión discutible si se quisiera razonamiento para preguntas complejas; externalizada en `UAO_RAG__LLM_DISABLE_REASONING` para revertirla sin tocar código.
-- **Rotación de claves por proceso**: el índice de clave vigente vive en el singleton `CerebrasLLM` (sin estado compartido entre procesos). Suficiente para F5 (un proceso uvicorn); con múltiples workers cada uno rota independientemente.
-- **Deuda aceptada**: sin tests permanentes de la cadena/rotación (decisión del usuario para esta fase); cubierto con humo manual y quedará en F6.
-- La extracción de citas por regex asume el formato `(Documento, sección)` que el prompt exige; citas malformadas se descartan y caen al fallback de trazabilidad (todos los chunks recuperados).
+- **Cobertura deliberadamente unitaria**: los tests usan dobles de prueba (stub de `ChatCerebras`, `FakeRetriever`, `FakeLLM`); la validación end-to-end real contra el índice (1284 chunks) ya se hizo en la Fase 4 con `scripts/ask.py` y no se repite aquí para no gastar tokens. La evaluación con banco de ~30 preguntas sigue siendo tarea de F6.
+- **El stub reemplaza `langchain_cerebras` en `sys.modules`** (módulo falso), no se hace monkeypatch sobre la librería real: los tests no importan la dependencia y siguen verificando que la rotación recrea el cliente con la nueva clave (`FakeChatCerebras.created` registra cada cliente construido y su `api_key`).
+- **Los retardos de backoff no se esperan**: `time.sleep` se graba en una lista; los tests afirman los valores exactos (1s, 2s), así la suite completa sigue en ~1.2 s.
+- **`Settings` real con claves ficticias**: los tests de rotación construyen `Settings(cerebras_api_key="k1", ...)` con kwargs explícitos, que tienen prioridad sobre `.env` y variables de entorno; por eso el test es determinista aunque la máquina tenga un `.env` con claves reales.
+- **`GuardLLM`** garantiza la tarea 4.4 por construcción: si `answer_question` invocara al LLM sin contexto, el test falla.
+- **No se cubre** (quedan para F6): exactitud semántica de las respuestas, recall del banco de preguntas, recalibración de `min_similarity`, ni pruebas de la API (F5 añadirá sus propios tests con `TestClient`).
+- Los hallazgos y decisiones de la Fase 4 (umbral en 0.35, `disable_reasoning=True`, rotación por proceso) siguen vigentes y sin cambios; esta PR no altera ninguna.
 
 ---
 
 ## 9. 🔗 Referencias
 
-- `plan-trabajo-tecnico.md` — Fase 4 (tareas 4.1–4.6), hallazgos F3/F4, §6 riesgos, §8 próximo paso.
-- `asistente-uao-rag.md` — documento base del proyecto.
-- Documentación externa: [langchain-cerebras (ChatCerebras)](https://python.langchain.com/docs/integrations/chat/cerebras/), [Cerebras Inference API](https://inference-docs.cerebras.ai/) (parámetro `disable_reasoning` vía `extra_body`), LangChain LCEL (`RunnableLambda`, `StrOutputParser`).
-- Fases previas de esta rama: F1 LlamaCloud Parse, F2 chunking+embeddings+Chroma, F3 recuperación (`retrieval.py`, `scripts/smoke_retrieval.py`).
+- PR anterior de la Fase 4 (`feat: cadena RAG con LLM Cerebras y rotación de claves API`): sección 6 registró la deuda de pruebas que esta PR salda.
+- `plan-trabajo-tecnico.md` — Fase 4 (tareas 4.1–4.6) y notas para F6.
+- Código bajo prueba: `src/asistente_agentico_uao/llm.py` (`CerebrasLLM`, `collect_api_keys`, `NO_INFO_MESSAGE`) y `src/asistente_agentico_uao/chain.py` (`answer_question`, `build_sources`, `extract_citations`, `_excerpt`).
+- Documentación externa: [pytest monkeypatch](https://docs.pytest.org/en/stable/reference/reference.html#monkeypatch), [unittest.mock / dobles de prueba](https://docs.python.org/3/library/unittest.mock.html), [LangChain Runnable (to_string)](https://python.langchain.com/docs/concepts/runnables/).
+- Fases previas de esta rama: F1 LlamaCloud Parse, F2 chunking+embeddings+Chroma, F3 recuperación.
