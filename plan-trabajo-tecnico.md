@@ -71,9 +71,12 @@ presentan **tres perfiles de extracción**:
    `prompt | llm | parser`). No LlamaIndex.
 2. **LLM**: `ChatCerebras(model="qwen-3.8-27b")` — modelo verificado en el
    catálogo de Cerebras (64k/128k contexto). API key por env var.
-3. **Embeddings**: `paraphrase-multilingual-mpnet-base-v2` local, con
-   resolución de device en runtime (`resolve_embedding_device()` en
-   `src/asistente_agentico_uao/config.py`): CUDA (NVIDIA) → ROCm (AMD) → CPU.
+3. **Embeddings**: modelo local **E5 multilingüe**
+   (`intfloat/multilingual-e5-base`, ventana de 512 tokens) con prefijos
+   asimétricos (`query:` / `passage:`), resolución de device en runtime
+   (`resolve_embedding_device()` en `src/asistente_agentico_uao/config.py`):
+   CUDA (NVIDIA) → ROCm (AMD) → CPU. *(Actualizado en F2: mpnet-base se
+   descartó porque su ventana de 128 tokens truncaba los chunks de ~400.)*
 4. **Vector DB**: ChromaDB `PersistentClient` (directorio `Data/chroma/`),
    colección única con upsert determinista (ID = SHA-256 del chunk).
 5. **API**: FastAPI + Pydantic v2. Carga perezosa del índice al arranque.
@@ -179,7 +182,7 @@ Asistente-agentico-UAO/
 | `UAO_RAG__CHROMA_DIR` | `Data/chroma` | Persistencia vectorial |
 | `UAO_RAG__TOP_K` | `5` | Fragmentos recuperados por consulta |
 | `UAO_RAG__MIN_SIMILARITY` | `0.35` | Umbral para responder "no sé" |
-| `UAO_RAG__EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Modelo de embeddings |
+| `UAO_RAG__EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | Modelo de embeddings (E5 multilingüe, prefijos `query:`/`passage:`) |
 | `UAO_RAG__EMBEDDING_DEVICE` | vacío (auto) | Forzar `cuda`/`cpu` si se desea |
 | `UAO_RAG__LLM_MODEL` | `qwen-3.8-27b` | Modelo en Cerebras |
 
@@ -286,17 +289,26 @@ basura). Iterar sobre `clean_markdown` según hallazgos.
 veces no duplica chunks (upsert); `collection.count()` estable; query de
 humo retorna fragmentos relevantes con `page` correcto.
 
-### Fase 3 — Motor de recuperación
-| # | Tarea | Detalle técnico |
+### Fase 3 — Motor de recuperación — ✅ COMPLETADA (2026-09-14)
+| # | Tarea | Estado |
 |---|---|---|
-| 3.1 | `retrieval.py` | `Retriever.retrieve(question) -> list[RetrievedChunk]`: embed query, `collection.query(n_results=top_k*2)`, re-ordenar por similitud coseno, descartar `score < min_similarity`, devolver máx `top_k` |
-| 3.2 | Formato de contexto | Renderizar los k chunks como bloques numerados `[1] (doc, sección): texto` para citación del LLM |
-| 3.3 | (Opcional) Re-ranking | Si la precisión es baja en F6: cross-encoder local (`cross-encoder/ms-marco-MiniLM-L-6-v2` multilingüe) reordenando top-20 → top-5 |
-| 3.4 | Tests | Unitarios con colección pequeña sintética + query real; caso "pregunta fuera de dominio" → lista vacía |
+| 3.1 | `retrieval.py`: `Retriever.retrieve(question) -> list[RetrievedChunk]` — embed query (prefijo `query:` de E5), `collection.query(n_results=top_k*2)`, `score = 1 - distance` (coseno), descarte `score < min_similarity`, orden desc y corte a `top_k`; colección inyectable y carga perezosa; `[]` inmediato si la colección está vacía | ✅ |
+| 3.2 | `format_context(chunks)`: bloques numerados `[N] (doc — sección): texto` para citación del LLM en F4 | ✅ |
+| 3.3 | (Opcional) Re-ranking | Aplazado a F6 (según plan) |
+| 3.4 | Tests | ✅ Verificados con suite temporal (unit + integración con EphemeralClient y embeddings E5 reales, 7/7 OK), **eliminada tras validar** a petición del usuario; se re-crean permanentes en F6 si se desea |
+| — | `scripts/smoke_retrieval.py`: humo con banco de 10 preguntas + preguntas ad-hoc por argumento | ✅ |
 
-**Criterio de aceptación F3**: para 10 preguntas de humo manuales sobre los
-reglamentos, el chunk correcto aparece en top-5 en ≥ 8 casos (medición
-informal antes de la evaluación formal de F6).
+**Criterio de aceptación F3**: ✅ humo sobre el índice real (1284 chunks):
+en las 10 preguntas del banco el fragmento pertinente aparece en top-5 con
+sim 0.81-0.88 (ej.: cancelaciones → Art. 31º/parágrafos del reglamento de
+pregrado; tres repitencias → Art. 70º-2 de Res-CA-6744; calendario 2026-2 →
+tablas de las Res. 8338/8339/8340).
+
+**⚠ Hallazgo para F6**: las similitudes coseno de E5 son altas en general:
+una pregunta claramente fuera de dominio ("receta de arepas") aún obtiene
+sim ≈ 0.81, por lo que `min_similarity=0.35` **no** discrimina preguntas
+fuera de dominio. Recalibrar el umbral (probablemente ≥ 0.85-0.90) con el
+banco de preguntas de F6, o apoyar el "no sé" en la instrucción del prompt.
 
 ### Fase 4 — LLM Cerebras + cadena RAG
 | # | Tarea | Detalle técnico |
@@ -401,8 +413,15 @@ es el checkpoint bloqueante actual.
 
 ## 8. Próximo paso inmediato
 
-1. Corrida de los 20 PDFs con LlamaCloud Parse
-   (`uv run python scripts/llama_cloud_parsing.py`) → `Data/Documentos_MD/*.md`.
-2. El usuario valida manualmente los `.md` de `Data/Documentos_MD/`.
-3. Con la validación OK → Fase 2 (`chunk.py`, `embeddings.py`,
-   `vectorstore.py`, `scripts/ingest.py`).
+~~Fase 3~~ ✅ COMPLETADA (2026-09-14): `retrieval.py` (Retriever +
+RetrievedChunk + format_context) y `scripts/smoke_retrieval.py`.
+
+**Siguiente: Fase 4** — LLM Cerebras + cadena RAG:
+1. `llm.py`: `ChatCerebras(model=settings.llm_model, temperature=0.1)` con
+   reintentos ante 429/timeout.
+2. `chain.py`: LCEL `Retriever → format_context → prompt (solo-contexto,
+   citas [N] → (Documento, sección)) → llm → parser`, con umbral pre-LLM
+   (si `retrieve()` devuelve `[]`, responder no-información sin gastar
+   tokens). El mensaje de "no sé" debe ser consistente con el hallazgo del
+   umbral (ver ⚠ en Fase 3): no confiar solo en `min_similarity`.
+3. `scripts/ask.py` para depurar end-to-end por CLI.
