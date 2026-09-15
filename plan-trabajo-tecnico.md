@@ -176,6 +176,7 @@ Asistente-agentico-UAO/
 | Variable | Default | Uso |
 |---|---|---|
 | `CEREBRAS_API_KEY` | — (obligatoria) | Autenticación API Cerebras |
+| `CEREBRAS_API_KEYS` | — (opcional) | Claves extra separadas por coma; rotación ante límites de cuota (429) o clave inválida (401/403) |
 | `LLAMA_CLOUD_API_KEY` | — (obligatoria para parsear) | Autenticación API LlamaCloud (solo Fase 1) |
 | `UAO_RAG__DOCS_DIR` | `Data/Documentos` | Corpus PDF original |
 | `UAO_RAG__MARKDOWN_DIR` | `Data/Documentos_MD` | Markdown limpio, entrada del RAG |
@@ -185,6 +186,10 @@ Asistente-agentico-UAO/
 | `UAO_RAG__EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | Modelo de embeddings (E5 multilingüe, prefijos `query:`/`passage:`) |
 | `UAO_RAG__EMBEDDING_DEVICE` | vacío (auto) | Forzar `cuda`/`cpu` si se desea |
 | `UAO_RAG__LLM_MODEL` | `qwen-3.8-27b` | Modelo en Cerebras |
+| `UAO_RAG__LLM_TEMPERATURE` | `0.1` | Temperatura de síntesis (F4) |
+| `UAO_RAG__LLM_MAX_TOKENS` | `1024` | Techo de tokens de la respuesta (F4) |
+| `UAO_RAG__LLM_DISABLE_REASONING` | `1` | Desactiva el thinking de qwen-3.8 (hallazgo F4: agotaba `max_tokens` y devolvía contenido vacío) |
+| `UAO_RAG__LLM_MAX_RETRIES` | `3` | Reintentos ante 429/timeout con backoff exponencial (F4) |
 
 ### 3.2 Esquema de la colección ChromaDB
 
@@ -310,18 +315,37 @@ sim ≈ 0.81, por lo que `min_similarity=0.35` **no** discrimina preguntas
 fuera de dominio. Recalibrar el umbral (probablemente ≥ 0.85-0.90) con el
 banco de preguntas de F6, o apoyar el "no sé" en la instrucción del prompt.
 
-### Fase 4 — LLM Cerebras + cadena RAG
-| # | Tarea | Detalle técnico |
+### Fase 4 — LLM Cerebras + cadena RAG — ✅ COMPLETADA (2026-09-15)
+| # | Tarea | Estado |
 |---|---|---|
-| 4.1 | `llm.py` | `ChatCerebras(model=settings.llm_model, temperature=0.1, max_tokens=1024)`; reintentos ante 429/timeout (backoff exponencial, 3 intentos) |
-| 4.2 | Prompt de síntesis (ES) | Rol: asistente de normativa UAO. Reglas: responder SOLO con el contexto `[1]..[k]`; citar como `(Documento, sección)`; si el contexto no alcanza, responder exactamente el mensaje de no-información; no inventar artículos |
-| 4.3 | `chain.py` | LCEL: `retriever → prompt → llm → StrOutputParser` + post-proceso que mapea fuentes citadas a `Source` (doc, page, score, excerpt) |
-| 4.4 | Umbral pre-LLM | Si `retrieval` no devuelve nada → no gastar tokens; respuesta inmediata de no-información |
-| 4.5 | Prueba end-to-end CLI | `scripts/ask.py` (o `uv run python -m asistente_agentico_uao.chain "pregunta"`) para depurar sin levantar la API |
+| 4.1 | `llm.py`: `get_llm()` singleton con `ChatCerebras(model, temperature, max_tokens)`; `invoke_with_retry` con backoff exponencial (1s/2s/4s) ante 429/timeout/conexión/5xx; `NO_INFO_MESSAGE` centralizado | ✅ |
+| 4.2 | Prompt de síntesis (ES) en `chain.py`: rol asistente normativa UAO; responder SOLO con contexto `[1]..[k]`; citar como `(Documento, sección)`; si el contexto no alcanza, copiar EXACTAMENTE `NO_INFO_MESSAGE`; no inventar; indicar qué falta si el contexto es parcial | ✅ |
+| 4.3 | `chain.py`: LCEL `prompt | llm(con reintentos) | StrOutputParser`; post-proceso `build_sources` mapea citas `(Documento, sección)` verificadas a `Source` (doc_name, section, score, excerpt); citas no verificables se descartan (nunca se inventan fuentes); `RagAnswer` con `used_fallback` | ✅ |
+| 4.4 | Umbral pre-LLM: `retrieve()` vacío → respuesta inmediata sin gastar tokens. **Mitigación del hallazgo F3**: como el umbral no discrimina dominio (sim ~0.81 fuera de dominio), la defensa principal es el prompt (reglas 2-3): el LLM juzga si el contexto responde; verificado de facto con 2 preguntas fuera de dominio → mensaje exacto sin alucinar | ✅ |
+| 4.5 | `scripts/ask.py`: CLI end-to-end (pregunta ad-hoc o banco de 7 humos: 5 in-dominio + 2 fuera de dominio) | ✅ |
+| 4.6 | Rotación de claves API: `CerebrasLLM` en `llm.py` envuelve `ChatCerebras` y rota a la siguiente clave de `CEREBRAS_API_KEY` + `CEREBRAS_API_KEYS` (coma) ante 429/cuota o 401/403, recreando el cliente; con una sola clave, 429 reintenta con backoff y 401/403 se relanza | ✅ |
 
-**Criterio de aceptación F4**: 5 preguntas de humo respondidas por CLI con
-citas correctas y verificables manualmente; 2 preguntas fuera de dominio
-responden "no tengo información suficiente" sin alucinar.
+**Criterio de aceptación F4**: ✅ Verificado con `uv run python scripts/ask.py`
+sobre el índice real (1284 chunks): "tres repitencias" cita Art. 70º-2/70º-3
+de Res-CA-6744; "requisitos magíster" cita Arts. 35º/13º de Res-CA-6605 e
+indica explícitamente qué no está en el contexto; "transferencia interna"
+cita Arts. 19°/17° (Reso-CS-666), 23º (Res-CA-6603) y 16º (Res. 7714). Las 2
+fuera de dominio (arepas, Mundial 2022) responden el mensaje exacto de
+no-información sin alucinar.
+
+**⚠ Hallazgo F4 (2026-09-15)**: `qwen-3.8-27b` es un modelo de razonamiento:
+por defecto gasta los `max_tokens` en tokens de thinking y devuelve
+`content` vacío (`finish_reason=length`; ocurrió en 2 de 7 humos). Mitigado
+con `disable_reasoning=True` vía `extra_body` (setting
+`UAO_RAG__LLM_DISABLE_REASONING=1`) + guardia en `chain.py` que degrada
+respuesta vacía a no-información. Efecto colateral positivo: latencia por
+pregunta bajó de ~2-12 s a ~0.3-0.6 s.
+
+**Notas para F6**: (a) recalibrar `min_similarity` con el banco (hallazgo
+F3 sigue vigente); (b) en 2 preguntas in-dominio ("cancelaciones 2026-2",
+"créditos mínimos posgrado") el LLM respondió no-información porque los
+chunks recuperados eran de otro programa/periodo: evaluar recall del banco
+y si las tablas de calendario contienen la fecha puntual.
 
 ### Fase 5 — API REST (FastAPI)
 | # | Tarea | Detalle técnico |
@@ -385,7 +409,8 @@ funcional consultable desde el host.
 | Privacidad: documentos institucionales suben a la nube de LlamaCloud | 20 PDFs oficiales enviados por API | El archivo remoto se borra tras el parseo (`files.delete`); el corpus es normativo público; confirmar autorización institucional si se incorporan documentos sensibles |
 | Pérdida de numeración de página en `markdown_full` | Contrato de citas cambiado (doc + sección) | Citar por documento + sección/artículo; si se exige página, re-parsear con `expand=["pages"]` |
 | Calidad de tablas (calendarios) | 2 calendarios cuatrimestrales/bimestrales son principalmente tablas | LlamaParse devuelve `<table>` HTML estructurado; validar manualmente los 3 calendarios en la revisión F1 |
-| Rate limits del free tier de Cerebras | Doc. oficial de planes | Backoff exponencial en `llm.py`; umbral pre-LLM evita llamadas inútiles |
+| Rate limits del free tier de Cerebras | Doc. oficial de planes | Rotación de claves (`CEREBRAS_API_KEYS`) en `CerebrasLLM` + backoff exponencial (`invoke_with_retry` integrado en la clase); umbral pre-LLM evita llamadas inútiles |
+| qwen-3.8-27b agota `max_tokens` en tokens de razonamiento (respuesta vacía) | Hallazgo F4 (2026-09-15): `finish_reason=length` con `reasoning_tokens=1024` en 2 de 7 humos | `disable_reasoning=True` vía `extra_body` (setting `UAO_RAG__LLM_DISABLE_REASONING=1`) + guardia en `chain.py` que degrada respuesta vacía a no-información |
 | Alucinaciones | Riesgo inherente LLM | Solo-contexto + citas + umbral de similitud + mensaje de no-información |
 | Nombres de archivo con Unicode NFD | Encontrado en `Data/Documentos/` | SIEMPRE usar `glob`/`Path`, nunca nombres hardcodeados con tildes |
 
@@ -413,15 +438,22 @@ es el checkpoint bloqueante actual.
 
 ## 8. Próximo paso inmediato
 
-~~Fase 3~~ ✅ COMPLETADA (2026-09-14): `retrieval.py` (Retriever +
-RetrievedChunk + format_context) y `scripts/smoke_retrieval.py`.
+~~Fase 4~~ ✅ COMPLETADA (2026-09-15): `llm.py` (ChatCerebras con
+`disable_reasoning` + reintentos con backoff), `chain.py` (LCEL +
+`build_sources` + umbral pre-LLM + guardia de respuesta vacía) y
+`scripts/ask.py` (humo end-to-end, 7 preguntas). Adicionalmente (4.6):
+rotación de claves API ante límites de cuota (`CEREBRAS_API_KEYS`). Mitigación
+del hallazgo F3
+verificada: las 2 preguntas fuera de dominio responden el mensaje exacto de
+no-información sin alucinar (la defensa es el prompt, no el umbral).
 
-**Siguiente: Fase 4** — LLM Cerebras + cadena RAG:
-1. `llm.py`: `ChatCerebras(model=settings.llm_model, temperature=0.1)` con
-   reintentos ante 429/timeout.
-2. `chain.py`: LCEL `Retriever → format_context → prompt (solo-contexto,
-   citas [N] → (Documento, sección)) → llm → parser`, con umbral pre-LLM
-   (si `retrieve()` devuelve `[]`, responder no-información sin gastar
-   tokens). El mensaje de "no sé" debe ser consistente con el hallazgo del
-   umbral (ver ⚠ en Fase 3): no confiar solo en `min_similarity`.
-3. `scripts/ask.py` para depurar end-to-end por CLI.
+**Siguiente: Fase 5** — API REST (FastAPI):
+1. `api/schemas.py`: `AskRequest(question: str 1..500)`, `Source(doc_name,
+   section, score, excerpt)` (ya existe como dataclass en `chain.py`;
+   definir la versión Pydantic), `AskResponse(answer, sources, model,
+   used_fallback)`.
+2. `api/main.py`: lifespan que carga `Retriever` + LLM una vez; `POST /ask`
+   (200 con `RagAnswer`, 503 sin `CEREBRAS_API_KEY`), `GET /health`
+   (`index_chunks`, `device`), `GET /documents`; CORS `*`.
+3. Ejecutar con `uv run uvicorn asistente_agentico_uao.api.main:app
+   --host 0.0.0.0 --port 8000` y validar con `curl`.
