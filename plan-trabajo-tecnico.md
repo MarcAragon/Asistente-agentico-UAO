@@ -1,11 +1,20 @@
-# Plan de Trabajo Técnico — Asistente RAG UAO (Backend + API)
+# Plan de Trabajo Técnico — Asistente RAG UAO (Backend + APIs + Frontend)
 
 > Proyecto: asistente conversacional RAG para normativa institucional UAO.
-> Alcance de este plan: **backend + API REST de preguntas** (sin frontend).
-> Documento base: `asistente-uao-rag.md`. Fecha: 2026-09-08.
+> Alcance de este plan: **backend + APIs (REST de consulta y gRPC de
+> ingesta) + frontend web (Streamlit) + caché semántica (Redis) +
+> contenerización (Docker)**. Documento base: `asistente-uao-rag.md`.
+> Fecha: 2026-09-08.
 > **Actualización 2026-09-09**: la extracción (Fase 1) migró de PyMuPDF+EasyOCR
 > local a **LlamaCloud Parse** (servicio agentic, salida markdown). Ver §0.4
 > (decisiones 7-8), Fase 1 y el registro de riesgos §6.
+> **Actualización 2026-09-15**: Fase 5 completada (REST de consulta + gRPC de
+> administración del índice) y **nueva Fase 7 — Frontend web (Streamlit),
+> caché semántica (Redis) y proxy inverso TLS**, insertada antes de la
+> contenerización, que pasa a ser **Fase 8**. Con esto el plan cubre el
+> alcance del documento base (`asistente-uao-rag.md` §1.4 infraestructura,
+> §2.2 objetivo 4 —interfaz interactiva y robusta—, §2.3 matriz de alcance,
+> §4.4 stack y las tareas Kanban 008/010).
 
 ---
 
@@ -15,8 +24,8 @@
 
 | Componente | Versión instalada | Estado |
 |---|---|---|
-| Python (gestionado por `uv`) | 3.13.7 | ✅ Validado |
-| `uv` | 0.12.2 | ✅ Lockfile con 151 paquetes |
+| Python (gestionado por `uv`) | 3.14.7 | ✅ Validado (el doc base §1.4 menciona 3.13; el repo fija `>=3.14` en `pyproject.toml` / `.python-version`) |
+| `uv` | 0.12.2 | ✅ Lockfile con ~150 paquetes |
 | `langchain` | 1.4.0 | ✅ Import OK |
 | `langchain-cerebras` (`ChatCerebras`) | 0.8.2 | ✅ Import OK |
 | `langchain-chroma` / `chromadb` | 1.1.0 / 1.5.9 | ✅ Import OK |
@@ -90,12 +99,34 @@ presentan **tres perfiles de extracción**:
    markdown de LlamaParse (ruido de layout: `logo:`/`signature:`,
    numeración de página huérfana, imágenes, espacios). Sin heurísticas de
    OCR (ligaduras, guiones de fin de línea, reconstrucción de párrafos).
+9. **Frontend (2026-09-15)**: **Streamlit** (chat, `frontend/app.py`), que
+   consume **solo la API REST `/ask`** por HTTP/JSON. No se llama gRPC desde
+   el navegador (exigiría grpc-web): gRPC sigue siendo el plano de control
+   interno. Fuera de alcance según `asistente-uao-rag.md` §2.3: historial
+   multiturno con contexto, autenticación contra el directorio
+   institucional e integración con SIA/Aula Virtual.
+10. **Caché semántica (2026-09-15)**: **Redis** para reutilizar respuestas a
+    preguntas frecuentes por similitud de la pregunta (embeddings E5), como
+    pide el doc base §1.4. Es **opcional y degradable**: sin Redis la API
+    responde igual (solo más lenta); se invalida al reindexar para no servir
+    respuestas de un índice viejo.
 
 ---
 
 ## 1. Arquitectura objetivo
 
 ```text
+                        ┌──────────────────────────────────────────────┐
+                        │   FRONTEND WEB (Fase 7 · Streamlit)          │
+ Estudiante ──────────►│   chat · respuesta + fuentes citadas         │
+   (navegador)          │   └─ HTTP/JSON (solo REST /ask, nunca gRPC)  │
+                        └───────────────────┬──────────────────────────┘
+                                            │ proxy inverso TLS (:443)
+                        ┌───────────────────▼──────────────────────────┐
+                        │  CACHÉ SEMÁNTICA (Fase 7 · Redis)            │
+                        │   hit por similitud de la pregunta → TTL     │
+                        └───────────────────┬──────────────────────────┘
+                                            ▼
                         ┌──────────────────────────────────────────────┐
                         │              BACKEND (este plan)             │
                         │                                              │
@@ -109,14 +140,19 @@ presentan **tres perfiles de extracción**:
                         │      ▼                                       │
                         │  vectorstore.py ─► ChromaDB persistente      │
                         │      Data/chroma/ (metadata: doc, sección)   │
+                        │      ▲                                       │
+                        │  gRPC :50051 (control plane, F5)             │
+                        │   Ingest(stream) · PruneIndex · IndexStatus  │
                         │                                              │
- Petición HTTP ──────►  │  API (online, FastAPI)                       │
+ Frontend ───────────►  │  REST :8000 (data plane, F5)                 │
    POST /ask            │  retrieval.py ─► top-k + umbral similitud    │
+                        │      ▼                                       │
+                        │  cache.py (F7) ─► Redis (hit por similitud)  │
                         │      ▼                                       │
                         │  chain.py (LCEL): prompt ─► llm.py ─► parse  │
                         │      llm.py = ChatCerebras(qwen-3.8-27b)     │
                         │      ▼                                       │
- Petición ◄───────────  │  respuesta + fuentes[] (doc, sección, texto) │
+ Respuesta ◄──────────  │  respuesta + fuentes[] (doc, sección, texto) │
                         └──────────────────────────────────────────────┘
 ```
 
@@ -131,6 +167,13 @@ Flujo de datos:
 3. **Umbral de "no sé"**: si ningún fragmento supera
    `min_similarity`, la cadena ni siquiera llama al LLM: responde
    `{"answer": "No tengo información suficiente...", "sources": []}`.
+4. **Frontend (online, F7)**: chat Streamlit → `POST /ask` (JSON) → dibuja
+   la respuesta y abre las fuentes (`doc_name`, `section`, `score`,
+   `excerpt`); el mensaje de no-información se muestra como estado
+   explícito con `used_fallback=true` y **sin** fuentes.
+5. **Caché semántica (F7)**: antes de llamar al LLM se consulta Redis con el
+   embedding de la pregunta; un hit devuelve la respuesta guardada (con sus
+   fuentes y su `model`) sin gastar tokens. Se invalida al reindexar.
 
 ---
 
@@ -146,15 +189,18 @@ Asistente-agentico-UAO/
 │   ├── llama_cloud_parsing.py   # CLI PDFs → LlamaCloud Parse → Data/Documentos_MD/*.md
 │   └── ingest.py                # FASE 2: CLI chunking+embeddings → Chroma
 ├── src/asistente_agentico_uao/
-│   ├── __init__.py
+│   ├── __init__.py / py.typed    # paquete tipado (analizadores estáticos)
 │   ├── config.py                # Settings (pydantic-settings) + device resolver
-│   ├── ingestion/               # FASE 2: chunk.py (chunking markdown 300-500 tokens)
+│   ├── ingestion/               # FASE 2/5: chunk.py + pipeline.py (ingesta compartida)
 │   ├── embeddings.py            # FASE 2: SentenceTransformer + device
 │   ├── vectorstore.py           # FASE 2: cliente Chroma + upsert + colección
 │   ├── retrieval.py             # FASE 3: retriever top-k + umbral
 │   ├── llm.py                   # FASE 4: ChatCerebras + prompt de síntesis
 │   ├── chain.py                 # FASE 4: cadena RAG LCEL completa
-│   └── api/                     # FASE 5: main.py (app FastAPI) + schemas.py
+│   ├── service.py               # FASE 5: AppState compartido REST/gRPC
+│   ├── api/                     # FASE 5: main.py (app FastAPI) + schemas.py
+│   ├── grpc_impl/               # FASE 5: proto + servicer + server (control de ingesta)
+│   └── cache.py                 # FASE 7: caché semántica en Redis (opcional)
 ├── tests/                       # pytest (unit + integración) — se crea en Fase 2
 ├── asistente-uao-rag.md         # Documento base del proyecto
 ├── plan-trabajo-tecnico.md      # Este plan
@@ -162,10 +208,12 @@ Asistente-agentico-UAO/
 └── .env / .env.example          # claves API; .env es copia de .env.example (gitignored)
 ```
 
-> **Nota 2026-09-09**: el paquete real es `src/asistente_agentico_uao/`
+> **Nota 2026-09-15**: el paquete real es `src/asistente_agentico_uao/`
 > (no `uao_rag` como se planeó al inicio) y el corpus vive bajo `Data/`
 > (`Data/Documentos/` los PDFs, `Data/Documentos_MD/` el markdown
-> parseado). `Data/chroma/` y `tests/` aún no existen: se crean en Fase 2.
+> parseado). Ya existen `Data/chroma/` (índice de 1284 chunks), `tests/`
+> (68 pruebas), `api/`, `grpc_impl/` y `service.py`; `frontend/`, `deploy/`
+> y `cache.py` se crean en la Fase 7.
 
 ---
 
@@ -190,6 +238,14 @@ Asistente-agentico-UAO/
 | `UAO_RAG__LLM_MAX_TOKENS` | `1024` | Techo de tokens de la respuesta (F4) |
 | `UAO_RAG__LLM_DISABLE_REASONING` | `1` | Desactiva el thinking de qwen-3.8 (hallazgo F4: agotaba `max_tokens` y devolvía contenido vacío) |
 | `UAO_RAG__LLM_MAX_RETRIES` | `3` | Reintentos ante 429/timeout con backoff exponencial (F4) |
+| `UAO_RAG__GRPC_ENABLED` | `1` | Servicio gRPC de administración del índice embebido en el proceso de la API (F5) |
+| `UAO_RAG__GRPC_PORT` | `50051` | Puerto del control plane gRPC (F5) |
+| `UAO_RAG__REDIS_URL` | `redis://localhost:6379/0` | Conexión a Redis para el caché semántico (F7) |
+| `UAO_RAG__CACHE_ENABLED` | `1` | Activa el caché semántico; `0` lo desactiva por completo (F7) |
+| `UAO_RAG__CACHE_SIMILARITY` | `0.97` | Similitud mínima pregunta↔pregunta cacheada para reutilizar la respuesta (F7) |
+| `UAO_RAG__CACHE_TTL_SECONDS` | `86400` | Vigencia de cada entrada de caché (24 h) (F7) |
+| `UAO_RAG__API_BASE_URL` | `http://localhost:8000` | URL de la API que consume el frontend (solo frontend, F7) |
+| `UAO_RAG__FEEDBACK_ENABLED` | `0` | Panel «¿fue útil?» (nice-to-have §2.3); si está en `0` no se muestra (F7) |
 
 ### 3.2 Esquema de la colección ChromaDB
 
@@ -240,7 +296,9 @@ Reglas:
   `sources: []` (el sistema nunca inventa).
 - Sin `CEREBRAS_API_KEY` configurada → la app arranca pero `/ask`
   responde `503` con mensaje claro.
-- CORS abierto (`*`) para el futuro frontend.
+- CORS abierto (`*`) para el futuro frontend. ✅ **Consumido por el frontend
+  de la Fase 7** (`frontend/app.py`): es el único contrato HTTP que usa; el
+  contrato gRPC (`IndexAdmin`) es interno y no navegable.
 
 ---
 
@@ -347,17 +405,37 @@ F3 sigue vigente); (b) en 2 preguntas in-dominio ("cancelaciones 2026-2",
 chunks recuperados eran de otro programa/periodo: evaluar recall del banco
 y si las tablas de calendario contienen la fecha puntual.
 
-### Fase 5 — API REST (FastAPI)
+### Fase 5 — API: REST (consulta) + gRPC (control de ingesta)
+
+**Separación de funciones** (decisión 2026-09-15): cada protocolo cumple un
+rol distinto y NO se duplican operaciones.
+
+- **REST (FastAPI, :8000) — plano de consulta público (data plane)**: la
+  puerta del frontend/usuario final. Solo LEE el índice y llama al LLM.
+- **gRPC (:50051) — plano de control e ingesta (control plane)**: las
+  operaciones de ESCRITURA/administración del índice (que antes solo
+  existían como CLI F2), máquina-a-máquina y con progreso en streaming.
+
 | # | Tarea | Detalle técnico |
 |---|---|---|
-| 5.1 | `api/schemas.py` | `AskRequest(question: str 1..500)`, `Source(doc_name, section, score, excerpt)`, `AskResponse(answer, sources, model, used_fallback)` |
-| 5.2 | `api/main.py` | Lifespan: cargar `Retriever` + cadena una vez (no por request); `POST /ask`, `GET /health`, `GET /documents`; CORS `*`; manejo de errores 503/500 |
-| 5.3 | Ejecución | `uv run uvicorn asistente_agentico_uao.api.main:app --host 0.0.0.0 --port 8000` |
-| 5.4 | Tests | `fastapi.testclient.TestClient`: 422 validación, /health, /ask con cadena mockeada (sin gastar tokens) |
+| 5.1 | Contrato | `grpc_impl/protos/index_admin.proto` (`Ingest`→stream `IngestProgress`, `PruneIndex`, `IndexStatus`); stubs committeados + `scripts/gen_proto.py` |
+| 5.2 | REST | `api/schemas.py` (Pydantic: `AskRequest(1..500)`, `AskResponse`…), `service.py` (`AppState` compartido por ambos protocolos), `api/main.py` (`POST /ask`, `GET /health`, `GET /documents`; CORS `*`; 422/503/500) |
+| 5.3 | gRPC | `grpc_impl/servicer.py` (pipeline en hilo worker + streaming de progreso; INVALID_ARGUMENT/INTERNAL) y `grpc_impl/server.py` (embebido en el lifespan o standalone) |
+| 5.4 | Pipeline compartido | `ingestion/pipeline.py`: lógica del CLI F2 extraída a funciones (CLI y gRPC ejecutan el mismo código); `scripts/ingest_client.py` como cliente de humo |
+| 5.5 | Tests | `test_api.py` (TestClient: 422/200/503/500, health, documents), `test_grpc.py` (servidor aio in-proceso: streaming, códigos, prune, status), `test_pipeline.py` — sin tokens ni modelo real |
+| 5.6 | Docs | README (ejecución de ambas APIs), `.env.example` (`UAO_RAG__GRPC_ENABLED/PORT`) |
 
-**Criterio de aceptación F5**: `curl -X POST /ask -d '{"question": "..."}'`
-devuelve 200 con `answer` + `sources[]` verificables; validaciones y
-errores según contrato §3.3.
+**Criterio de aceptación F5**: ✅ `curl -X POST /ask` → 200 con `answer` +
+`sources[]` verificables (humo real: `/health` 1284 chunks/cuda,
+`/documents` 20 docs, 422 en pregunta en blanco); `IndexStatus` por gRPC →
+1284 chunks/20 documentos; suite `uv run pytest` 68/68 y ruff en verde.
+
+**Notas F5**: (a) el modelo de embeddings se carga una vez y lo comparten
+REST y gRPC (mismo proceso); (b) tras un `rebuild` por gRPC se invalida la
+colección cacheada del Retriever (`AppState.on_index_rebuilt`); (c) los
+stubs gRPC están excluidos del lint (código generado); (d) streaming de
+tokens del LLM queda como extensión futura (el pipeline actual es
+invoke-completo).
 
 ### Fase 6 — Pruebas, evaluación y ajuste fino
 | # | Tarea | Detalle técnico |
@@ -370,16 +448,55 @@ errores según contrato §3.3.
 **Criterio de aceptación F6**: reporte de métricas reproducible;
 recall@5 ≥ 0.8 y citas exactas ≥ 80% como objetivo inicial.
 
-### Fase 7 — Contenerización y documentación (alcance backend)
+### Fase 7 — Frontend web (Streamlit) + caché semántica (Redis) + proxy TLS
+
+**Concepto (documento base)**: el objetivo específico 4 pide una «interfaz de
+usuario interactiva y robusta»; el §4.4 fija **Streamlit** como interfaz tipo
+chat; el §1.4 exige **Redis** para el caché semántico de consultas frecuentes y
+un **proxy inverso con validación de certificados TLS** para exponer el
+servicio de forma segura. Es la fase que convierte el backend en un producto
+usable por el estudiante.
+
+**Alcance**: chat de **una sola vuelta** (el historial multiturno con contexto
+es «nice to have» en la matriz §2.3), sin autenticación contra el directorio
+institucional ni integración con SIA/Aula Virtual (fuera de alcance). El
+frontend consume **solo** `POST /ask` (REST); nunca gRPC.
+
 | # | Tarea | Detalle técnico |
 |---|---|---|
-| 7.1 | `Dockerfile` | Multi-stage sobre `python:3.13-slim`; instala `uv`; `uv sync --frozen`; el índice se pre-construye y se monta como volumen (`Data/chroma`) para no descargar el modelo de embeddings en cada build |
-| 7.2 | `docker-compose.yml` | Servicio `api` (puerto 8000) + volumen `data/` + `env_file: .env`. (Redis/proxy quedan para fase de frontend) |
-| 7.3 | README técnico | Instalación, ingesta, arranque, contrato API, arquitectura |
-| 7.4 | `Makefile` o `justfile` | Atajos: `make ingest`, `make api`, `make test`, `make lint` |
+| 7.1 | `frontend/app.py` (chat) | Streamlit: `st.chat_input` + `st.chat_message`; cada pregunta viaja a `POST /ask` con `httpx` (`UAO_RAG__API_BASE_URL`, timeout explícito); `st.session_state` guarda el historial **de la sesión** solo para mostrarlo (no se reenvía como contexto al LLM: una vuelta) |
+| 7.2 | Respuesta y fuentes | Respuesta en markdown + `st.expander("Fuentes (n)")` con `doc_name`, `section`, `score` (2 decimales) y `excerpt`; si `used_fallback=true` → aviso ámbar «no hay información suficiente en la normativa» y **cero fuentes**; el backend ya descarta citas no verificables, la UI nunca las inventa |
+| 7.3 | UX y robustez | `st.spinner` con estado mientras responde el LLM (~0.3-0.6 s medidos, pero sin pantalla congelada); límite de 500 caracteres con contador (contrato §3.3); preguntas de ejemplo (incluye jerga/typos, doc base §1.5); errores mapeados a mensajes claros: `422` (pregunta vacía/larga), `503` (sin clave de LLM), `500` y API caída (timeout/conexión) |
+| 7.4 | Aviso y privacidad | Aviso visible «respuestas orientativas con la fuente oficial citada; no reemplaza la asesoría de Secretaría Académica»; el chat no solicita ni almacena datos personales (Ley 1581 de 2012, doc base §1.4): la caché guarda preguntas y respuestas, nunca identidades |
+| 7.5 | `cache.py` (caché semántica) | `redis-py`: índice de preguntas + hash del embedding de la pregunta normalizada; **hit** si la similitud ≥ `UAO_RAG__CACHE_SIMILARITY` (se reutiliza el modelo E5 ya cargado, sin modelo extra); valor = `RagAnswer` serializado (respuesta, fuentes, `model`, `used_fallback`); `TTL` = `UAO_RAG__CACHE_TTL_SECONDS`; contadores hit/miss/ratio visibles en `/health`; **degradable**: sin Redis o con `CACHE_ENABLED=0` la API responde igual |
+| 7.6 | Integración e invalidación | El caché se consulta en `service.py` (capa compartida REST/gRPC) **antes** de `answer_question`, así la REST y futuras integraciones lo aprovechan; `Ingest(rebuild)` y `PruneIndex` del servicio gRPC invalidan el caché, y las claves se versionan con la huella del índice (`count()` + timestamp) para no servir respuestas de un corpus viejo |
+| 7.7 | Proxy inverso TLS | `deploy/Caddyfile` (o `nginx.conf`): terminación TLS automática en `:443`, redirección HTTP→HTTPS y cabeceras de seguridad; la API (:8000), gRPC (:50051) y Redis (:6379) quedan **solo** en la red interna del compose, sin publicarse al host |
+| 7.8 | Pruebas | `tests/test_cache.py` con `fakeredis`: hit por similitud, miss, expiración por TTL, degradación sin Redis e invalidación por reindexado; `tests/test_frontend.py` para las funciones puras del cliente (llamada a la API y mapeo de errores con `httpx` mockeado). Humo manual: `uv run streamlit run frontend/app.py` contra la API local |
+| 7.9 | (nice-to-have §2.3) Retroalimentación | Botones «útil / no útil» por respuesta (contador en Redis o log JSON); se muestra solo con `UAO_RAG__FEEDBACK_ENABLED=1`; sin datos personales |
 
-**Criterio de aceptación F7**: `docker compose up --build` levanta la API
-funcional consultable desde el host.
+**Criterio de aceptación F7**: `uv run streamlit run frontend/app.py` responde
+preguntas reales mostrando la respuesta y sus fuentes; una pregunta fuera de
+dominio muestra el estado de no-información **sin fuentes**; repetir una
+pregunta frecuente (o su paráfrasis) se resuelve desde caché en ≲50 ms y se
+contabiliza como `hit`; con Redis detenido la UI sigue operativa (solo más
+lenta); el acceso público es HTTPS vía proxy y ni la API ni gRPC quedan
+expuestos. Alineado con las tareas Kanban 008 (5 SP) y la parte de UI/Redis
+de la 010.
+
+### Fase 8 — Contenerización y documentación (solución completa)
+| # | Tarea | Detalle técnico |
+|---|---|---|
+| 8.1 | `Dockerfile` backend | Multi-stage sobre `python:3.14-slim` (versión fijada en `.python-version`); instala `uv`; `uv sync --frozen`; el índice se pre-construye y se monta como volumen (`Data/chroma`) para no descargar el modelo de embeddings en cada build |
+| 8.2 | `Dockerfile` frontend | Imagen ligera para Streamlit (`frontend/app.py`); sin dependencias de ML (es solo un cliente HTTP de la API) |
+| 8.3 | `docker-compose.yml` | Servicios: `proxy` (TLS, único puerto expuesto), `frontend` (:8501 interno), `api` (:8000 interno + :50051 gRPC interno), `redis` (caché) y volumen `data/`; `env_file: .env`; `depends_on` con `healthcheck` por servicio; red interna |
+| 8.4 | README técnico + `Makefile`/`justfile` | Instalación, ingesta, arranque, contrato API y CLI, arquitectura y operación (logs, rebuild del índice, invalidación de caché); atajos: `make ingest`, `make api`, `make frontend`, `make test`, `make lint`, `make up` |
+| 8.5 | Guía de despliegue | Variables de `.env`, persistencia (`Data/chroma` y volumen de Redis), renovación de certificados TLS, respaldo del índice y verificación de que `:8000`/`:50051`/`:6379` no están publicados al host |
+
+**Criterio de aceptación F8**: `docker compose up --build` levanta la solución
+completa (frontend en HTTPS + API + gRPC + Redis) y el chat es consultable
+desde el host; `docker compose down && docker compose up` conserva el índice;
+la suite `uv run pytest` y `uv run ruff check src scripts tests` siguen en
+verde.
 
 ---
 
@@ -391,7 +508,13 @@ funcional consultable desde el host.
 > inline de `clean_markdown` (ya borrada).
 
 - **Unitarias** (rápidas, sin red/GPU): limpieza de markdown, chunking,
-  schemas, umbrales, formateo de contexto. Mocks de LLM y embeddings.
+  pipeline de ingesta, schemas, umbrales, formateo de contexto, citas/fuentes,
+  API REST (`TestClient`), gRPC in-proceso y caché semántica (`fakeredis`).
+  Mocks de LLM, embeddings y Redis.
+- **Frontend (F7)**: funciones puras del cliente Streamlit (llamada a
+  `POST /ask`, formateo de fuentes, mapeo de errores 422/503/500/conexión)
+  con `httpx` mockeado; el render se valida con humo manual
+  (`uv run streamlit run frontend/app.py` contra la API local).
 - **Integración** (marcadas `slow`): embeddings reales + Chroma efímero;
   1 llamada real a Cerebras (opcional, tras `pytest -m "not slow"`).
 - **Evaluación** (F6): banco de preguntas + métricas de recuperación y
@@ -413,6 +536,11 @@ funcional consultable desde el host.
 | qwen-3.8-27b agota `max_tokens` en tokens de razonamiento (respuesta vacía) | Hallazgo F4 (2026-09-15): `finish_reason=length` con `reasoning_tokens=1024` en 2 de 7 humos | `disable_reasoning=True` vía `extra_body` (setting `UAO_RAG__LLM_DISABLE_REASONING=1`) + guardia en `chain.py` que degrada respuesta vacía a no-información |
 | Alucinaciones | Riesgo inherente LLM | Solo-contexto + citas + umbral de similitud + mensaje de no-información |
 | Nombres de archivo con Unicode NFD | Encontrado en `Data/Documentos/` | SIEMPRE usar `glob`/`Path`, nunca nombres hardcodeados con tildes |
+| Caché semántica sirviendo respuestas de un índice viejo | Redis (F7) guarda respuestas; al reindexar el corpus quedan obsoletas | Invalidación en `Ingest(rebuild)`/`PruneIndex` y claves versionadas con la huella del índice (`count()` + timestamp); TTL de 24 h como red de seguridad |
+| Dependencia de Redis en producción | Doc base §1.4 exige contenedor de Redis para el caché | El caché es **opcional y degradable**: sin Redis (o `UAO_RAG__CACHE_ENABLED=0`) la API responde igual; `healthcheck` en compose y contadores hit/miss en `/health` |
+| Latencia percibida y pantallas congeladas en la UI | Doc base §1.5 (tiempo de procesamiento) | `st.spinner` con estado, timeout explícito del cliente HTTP, caché semántica para preguntas repetidas (latencia del LLM medida: 0.3-0.6 s) |
+| Exposición pública del servicio y datos personales | Doc base §1.4 (proxy TLS + Ley 1581) | Proxy inverso con TLS automático como único puerto público; API/gRPC/Redis en red interna; el chat no pide datos personales y la caché guarda solo pregunta/respuesta |
+| Preguntas reales con jerga/typos distintas del banco de pruebas | Doc base §1.5 (cuarta limitación) | Preguntas de ejemplo en la UI, banco F6 con jerga/typos y caché semántica que absorbe paráfrasis de la misma pregunta |
 
 ---
 
@@ -425,14 +553,18 @@ funcional consultable desde el host.
 | **F2 Chunking+embeddings+Chroma** | **5** | **1-2 sesiones** | **F1** |
 | **F3 Recuperación** | **3** | **1 sesión** | **F2** |
 | **F4 LLM+Cadena RAG** | **5** | **1 sesión** | F3 |
-| F5 API FastAPI | 3 | 1 sesión | F4 |
+| F5 APIs (REST consulta + gRPC ingesta) | 3 | ✅ hecho | F4 |
 | F6 Evaluación+ajustes | 3 | 1-2 sesiones | F5 |
-| F7 Docker+docs | 3 | 1 sesión | F6 |
-| **Total** | **29 SP** | **~7-9 sesiones** | |
+| **F7 Frontend Streamlit + caché Redis + proxy TLS** | **5** | **1-2 sesiones** | **F5 (puede solaparse con F6)** |
+| F8 Docker+docs (backend+frontend+Redis+proxy) | 5 | 1 sesión | F7 |
+| **Total** | **36 SP** | **~9-12 sesiones** | |
 
 La **ruta crítica** es F1 → F2 → F3 → F4: cualquier retrabajo en la
 validación manual del texto limpio (F1.9) desplaza todo lo demás, por eso
-es el checkpoint bloqueante actual.
+es el checkpoint bloqueante actual. F7 solo depende de F5 (ya completada), así
+que puede ejecutarse en paralelo con F6; F8 cierra el proyecto y depende de F7.
+La carga total (36 SP) cuadra con el Kanban del documento base (38 SP, tareas
+008 «interfaz en Streamlit» y 010 «Docker + Redis + Proxy»).
 
 ---
 
@@ -447,13 +579,14 @@ del hallazgo F3
 verificada: las 2 preguntas fuera de dominio responden el mensaje exacto de
 no-información sin alucinar (la defensa es el prompt, no el umbral).
 
-**Siguiente: Fase 5** — API REST (FastAPI):
-1. `api/schemas.py`: `AskRequest(question: str 1..500)`, `Source(doc_name,
-   section, score, excerpt)` (ya existe como dataclass en `chain.py`;
-   definir la versión Pydantic), `AskResponse(answer, sources, model,
-   used_fallback)`.
-2. `api/main.py`: lifespan que carga `Retriever` + LLM una vez; `POST /ask`
-   (200 con `RagAnswer`, 503 sin `CEREBRAS_API_KEY`), `GET /health`
-   (`index_chunks`, `device`), `GET /documents`; CORS `*`.
-3. Ejecutar con `uv run uvicorn asistente_agentico_uao.api.main:app
-   --host 0.0.0.0 --port 8000` y validar con `curl`.
+**Siguiente: Fase 6** — Pruebas, evaluación y ajuste fino (banco de ~30
+preguntas con jerga/typos, recall@5 y MRR, fidelidad/exactitud de citas y
+recalibración de `min_similarity`). La Fase 5 de APIs ya está implementada y
+verificada: REST de consulta en `api/` + gRPC de ingesta en `grpc_impl/`.
+
+**Después — Fase 7 (frontend)**: `frontend/app.py` en Streamlit consumiendo
+`POST /ask`, caché semántica en Redis (`cache.py`) y proxy inverso TLS
+(`deploy/`); puede arrancar en paralelo con F6 porque solo depende de la API
+de la Fase 5. La **Fase 8** cierra con la contenerización de la solución
+completa (backend + frontend + Redis + proxy) y la documentación de
+despliegue.

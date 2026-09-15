@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package raguao.index.v1;
+
+// Plano de control de ingesta (Fase 5): administración del índice Chroma.
+//
+// Separación de funciones con la API REST (api/main.py, :8000):
+// - REST = consulta pública (POST /ask, GET /health, GET /documents):
+//   solo LEE el índice y llama al LLM; cara al frontend.
+// - gRPC = control plane interno: operaciones de ESCRITURA sobre el índice
+//   (ingesta, prune, estado), máquina-a-máquina, con progreso en streaming.
+// Este servicio NO duplica /ask.
+
+service IndexAdmin {
+  // Ingresa markdowns al índice; emite progreso por documento en vivo.
+  // Idempotente (IDs sha256(doc_name+chunk_index)); rebuild borra antes.
+  rpc Ingest(IngestRequest) returns (stream IngestProgress);
+
+  // Borra chunks de documentos ausentes en markdown_dir.
+  rpc PruneIndex(Empty) returns (PruneResult);
+
+  // Estado del índice: chunks, documentos, modelo de embeddings, device.
+  rpc IndexStatus(Empty) returns (IndexStatusResponse);
+}
+
+message Empty {}
+
+message IngestRequest {
+  // Match parcial del nombre de archivo; vacío = todos los markdowns.
+  string file_match = 1;
+  // Borra y recrea la colección antes de indexar.
+  bool rebuild = 2;
+}
+
+message IngestProgress {
+  string doc_name = 1;
+  int32 chunks = 2;
+  float seconds = 3;
+  int32 token_p50 = 4;
+  int32 token_p90 = 5;
+  int32 token_max = 6;
+  // Documentos procesados hasta ahora / total en este batch.
+  int32 done = 7;
+  int32 total_docs = 8;
+}
+
+message PruneResult {
+  int32 removed_chunks = 1;
+}
+
+message IndexStatusResponse {
+  int32 chunks = 1;
+  int32 documents = 2;
+  string embedding_model = 3;
+  string device = 4;
+}

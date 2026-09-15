@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # Reintentos ante 429/timeout con backoff exponencial (ver llm.py).
     llm_max_retries: int = 3
 
+    # --- gRPC: plano de control de ingesta (Fase 5) ---
+    # La consulta pública (pregunta→respuesta) vive en la API REST (:8000).
+    # gRPC expone SOLO la administración del índice (IndexAdmin: Ingest con
+    # progreso en streaming, PruneIndex, IndexStatus) en :50051; no duplica
+    # funciones de la REST. Se puede desactivar (solo REST) con 0.
+    grpc_enabled: bool = True
+    grpc_port: int = 50051
+
     # --- Claves de API (sin prefijo; solo .env o entorno, nunca en el repo) ---
     cerebras_api_key: str = Field(
         default="",

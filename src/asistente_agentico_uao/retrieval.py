@@ -75,6 +75,10 @@ class Retriever:
             self._collection = get_collection()
         return self._collection
 
+    def reset(self) -> None:
+        """Olvida la colección cacheada (p.ej. tras un rebuild del índice)."""
+        self._collection = None
+
     def retrieve(self, question: str) -> list[RetrievedChunk]:
         """Devuelve hasta ``top_k`` chunks con ``score >= min_similarity``."""
         top_k = self.settings.top_k
