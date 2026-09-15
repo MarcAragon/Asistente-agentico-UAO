@@ -220,3 +220,4 @@ __marimo__/
 # Proyecto: índice vectorial generado (regenerable con scripts/ingest.py)
 Data/chroma/
 
+Data/chroma_backup/
