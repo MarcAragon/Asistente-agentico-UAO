@@ -1,15 +1,20 @@
 # 📋 Plantilla de Pull Request — Asistente Agéntico RAG UAO
 
 <!--
-Instrucciones de uso:
-- Completa TODAS las secciones. Si una sección no aplica, escribe "N/A" y justifica brevemente.
+Plantilla pre-llenada con el contexto de la FASE 4 (LLM Cerebras + cadena RAG),
+rama feat--lmm_integration. Al reutilizarla para otra fase, reponer los
+checkbox y sustituir el contenido de las secciones 3-9.
+Instrucciones:
+- Completa TODAS las secciones. Si una no aplica, escribe "N/A" y justifica.
 - El título de la PR debe seguir Convencional Commits:
   feat: | fix: | refactor: | docs: | chore: | test:
-  Ej: "feat: pipeline de preprocesamiento de documentos con LlamaCloud Parse"
+  Ej: "feat: cadena RAG con LLM Cerebras y rotación de claves API"
 - Elimina los comentarios HTML antes de abrir la PR.
 -->
 
 ## 1. 🧩 Tipo de Pull Request
+
+**Título sugerido:** `feat: cadena RAG con LLM Cerebras y rotación de claves API (Fase 4)`
 
 Marca **uno** como principal (y otros si esta PR es mixta):
 
@@ -117,33 +122,65 @@ Variables que esta PR introduce:
 <!-- Pega la salida real (recortada si es larga) de los comandos que ejecutaste. No describas de memoria: pega lo que la terminal imprimió. -->
 
 ```
-# Comando 1:
-$ uv run ...
-<salida>
+# Comando 1 (suite completa + lint):
+$ uv run pytest -q
+21 passed in 1.10s
+$ uv run ruff check src scripts tests
+All checks passed!
 
-# Comando 2:
-$ uv run ruff check src scripts
-<salida>
+# Comando 2 (pruebas temporales de rotación de claves — ejecutadas y luego borradas):
+$ uv run pytest tests/test_rotacion_temporal.py -q
+9 passed in 1.02s
+# Cubre: 429→rota a clave 2; 401→rota; cuota en todas las claves→backoff
+# sobre la última y agotamiento acotado; 401 con una clave→se relanza;
+# timeout→reintenta la misma clave; 400→se relanza sin rotar; sin
+# claves→RuntimeError con mensaje claro.
+
+# Comando 3 (humo end-to-end sobre el índice real, 1284 chunks):
+$ uv run python scripts/ask.py
+Pregunta: ¿Que pasa si repruebo tres veces una misma asignatura?
+Respuesta (qwen-3.8-27b):
+Si repruebas tres veces una misma asignatura, ingresas a prueba académica
+por repitencia (Res-CA-6744-Modifica-Reglamento-de-Pregrado.pdf,
+ARTÍCULO 70º-2. INGRESO A PRUEBA ACADÉMICA POR REPITENCIA:)...
+Fuentes (2):
+  1. sim=0.882  Res-CA-6744-Modifica-Reglamento-de-Pregrado.pdf — ARTÍCULO 70º-2...
+  2. sim=0.864  Res-CA-6744-Modifica-Reglamento-de-Pregrado.pdf — ARTÍCULO 70º-3...
+
+Pregunta: ¿Cuál es la receta traditional de las arepas antioqueñas?
+Respuesta (qwen-3.8-27b):
+No tengo información suficiente en la normativa UAO para responder esa pregunta.
+  [fallback: sin llamada al LLM o respuesta de no-información]
+Fuentes (0):
 ```
 
+Resultado del criterio de aceptación F4 (7 humos): "tres repitencias" cita Art. 70º-2/70º-3 de Res-CA-6744; "requisitos magíster" cita Arts. 35º/13º de Res-CA-6605 e indica explícitamente qué no está en el contexto; "transferencia interna" cita Arts. 19°/17° (Reso-CS-666), 23º (Res-CA-6603) y 16º (Res. 7714), mapeados a 4 fuentes; las 2 fuera de dominio (arepas, Mundial 2022) responden el mensaje exacto de no-información sin alucinar.
+
 #### 🔄 Pasos para replicar / probar manualmente
-1. <!-- Ej. `git clone ... && cd ... && uv sync` -->
-2. <!-- Ej. `cp .env.example .env` y completar `LLAMA_CLOUD_API_KEY` -->
-3. <!-- Ej. `uv run python scripts/llama_cloud_parsing.py --file <nombre-parcial>` -->
+1. `git clone ... && cd Asistente-agentico-UAO && uv sync`
+2. `cp .env.example .env` y completar `CEREBRAS_API_KEY` (opcional: `CEREBRAS_API_KEYS` para rotación).
+3. Verificar que el índice existe: `uv run python scripts/smoke_retrieval.py` (o regenerarlo con `uv run python scripts/ingest.py`).
+4. Humo end-to-end: `uv run python scripts/ask.py` (banco de 7) o `uv run python scripts/ask.py "¿pregunta ad-hoc?"`.
 
 #### 🖼️ Capturas / salida visual (opcional)
-<!-- Capturas de terminal, o del comportamiento de la API/UI si aplica. -->
+Salida completa del humo F4 registrada en la sesión de trabajo: 7 preguntas con tiempos de 0.3–0.6 s por respuesta (tras desactivar el razonamiento) y fuentes con similitud 0.83–0.88.
 
 ---
 
 ## 8. 👀 Notas para el Revisor
 
-<!-- Puntos específicos que quieres que el revisor mire con lupa, dudas abiertas, decisiones discutibles, o deudas técnicas aceptadas conscientemente. -->
+- **Umbral `min_similarity` NO se recalibró** (sigue en 0.35): deliberado. Con similitudes E5 de ~0.81 fuera de dominio, cualquier umbral absoluto erraría en ambos sentidos; la recalibración se hace en F6 con el banco de ~30 preguntas. La mitigación actual es el prompt de solo-contexto, ya verificada con 2 preguntas fuera de dominio.
+- **2 preguntas in-dominio responden "no sé"** ("cancelaciones 2026-2", "créditos mínimos posgrado"): el LLM juzgó correctamente que los chunks recuperados eran de otro programa/periodo. Anotado para F6 (evaluar recall del banco y si las tablas de calendario contienen la fecha puntual); no es un defecto de la cadena.
+- **`disable_reasoning=True` por defecto**: decisión discutible si se quisiera razonamiento para preguntas complejas; externalizada en `UAO_RAG__LLM_DISABLE_REASONING` para revertirla sin tocar código.
+- **Rotación de claves por proceso**: el índice de clave vigente vive en el singleton `CerebrasLLM` (sin estado compartido entre procesos). Suficiente para F5 (un proceso uvicorn); con múltiples workers cada uno rota independientemente.
+- **Deuda aceptada**: sin tests permanentes de la cadena/rotación (decisión del usuario para esta fase); cubierto con humo manual y quedará en F6.
+- La extracción de citas por regex asume el formato `(Documento, sección)` que el prompt exige; citas malformadas se descartan y caen al fallback de trazabilidad (todos los chunks recuperados).
 
 ---
 
 ## 9. 🔗 Referencias
 
-- <!-- plan-trabajo-tecnico.md, fase X -->
-- <!-- Documentación externa: pydantic-settings, LlamaCloud Parse, Cerebras… -->
-- <!-- Issues o PRs relacionadas -->
+- `plan-trabajo-tecnico.md` — Fase 4 (tareas 4.1–4.6), hallazgos F3/F4, §6 riesgos, §8 próximo paso.
+- `asistente-uao-rag.md` — documento base del proyecto.
+- Documentación externa: [langchain-cerebras (ChatCerebras)](https://python.langchain.com/docs/integrations/chat/cerebras/), [Cerebras Inference API](https://inference-docs.cerebras.ai/) (parámetro `disable_reasoning` vía `extra_body`), LangChain LCEL (`RunnableLambda`, `StrOutputParser`).
+- Fases previas de esta rama: F1 LlamaCloud Parse, F2 chunking+embeddings+Chroma, F3 recuperación (`retrieval.py`, `scripts/smoke_retrieval.py`).
