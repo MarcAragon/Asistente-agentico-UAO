@@ -84,7 +84,9 @@ def make_config(
     max_retries: int = 3,
 ) -> Settings:
     return Settings(
-        cerebras_api_key=api_key, cerebras_api_keys=api_keys, llm_max_retries=max_retries
+        cerebras_api_key=api_key,
+        cerebras_api_keys=api_keys,
+        llm_max_retries=max_retries,
     )
 
 
@@ -191,7 +193,11 @@ def test_timeout_reintenta_misma_clave_sin_rotar(llm_env):
 
 
 def test_cuota_en_todas_las_claves_agota_y_relaza(llm_env):
-    """429 en todas las claves: rota, agota los reintentos y se relanza."""
+    """429 en todas las claves: rota, agota los reintentos y se relanza.
+
+    Con 2 claves y max_retries=3: k1 falla (rota), k2 falla 3 veces con
+    backoff creciente 1s/2s y en el 3er reintento se relanza.
+    """
     llm_env.cerebras.behavior["k1"] = raise_error(FakeHTTPError(429))
     llm_env.cerebras.behavior["k2"] = raise_error(FakeHTTPError(429))
     llm = CerebrasLLM(make_config(api_key="k1", api_keys="k2", max_retries=3))
