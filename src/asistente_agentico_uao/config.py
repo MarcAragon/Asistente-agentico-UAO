@@ -53,11 +53,25 @@ class Settings(BaseSettings):
 
     # --- LLM (Cerebras) ---
     llm_model: str = "qwen-3.8-27b"
+    llm_temperature: float = 0.1
+    llm_max_tokens: int = 1024
+    # qwen-3.8-27b razona por defecto: en F4 agotó los max_tokens en tokens
+    # de thinking (finish_reason=length, content vacío). Se desactiva: la
+    # síntesis solo-contexto no lo necesita. Hallazgo F4 2026-09-15.
+    llm_disable_reasoning: bool = True
+    # Reintentos ante 429/timeout con backoff exponencial (ver llm.py).
+    llm_max_retries: int = 3
 
     # --- Claves de API (sin prefijo; solo .env o entorno, nunca en el repo) ---
     cerebras_api_key: str = Field(
         default="",
         validation_alias=AliasChoices("CEREBRAS_API_KEY", "UAO_RAG__CEREBRAS_API_KEY"),
+    )
+    # Claves adicionales de Cerebras separadas por coma: rotación ante
+    # límites de cuota/429 por clave (ver llm.py, CerebrasLLM).
+    cerebras_api_keys: str = Field(
+        default="",
+        validation_alias=AliasChoices("CEREBRAS_API_KEYS", "UAO_RAG__CEREBRAS_API_KEYS"),
     )
     llama_cloud_api_key: str = Field(
         default="",
