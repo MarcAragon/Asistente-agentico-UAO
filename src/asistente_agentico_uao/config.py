@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     grpc_enabled: bool = True
     grpc_port: int = 50051
 
+    # --- Cache semantico (Redis, Fase 7) ---
+    # Se degrada solo: sin Redis disponible o con cache_enabled=False, buscar()
+    # siempre devuelve None (miss) y la app responde igual, solo mas lento.
+    redis_url: str = "redis://localhost:6379/0"
+    cache_enabled: bool = True
+    cache_similarity: float = 0.97
+    cache_ttl_seconds: int = 86400
+
     # --- Claves de API (sin prefijo; solo .env o entorno, nunca en el repo) ---
     cerebras_api_key: str = Field(
         default="",

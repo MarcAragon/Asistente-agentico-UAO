@@ -111,8 +111,14 @@ def create_app(config: Settings | None = None, state: AppState | None = None) ->
     )
     def health(request: Request) -> HealthResponse:
         rag: AppState = request.app.state.rag
+        stats = rag.cache.estadisticas()
         return HealthResponse(
-            status="ok", index_chunks=rag.index_chunks(), device=rag.device
+            status="ok",
+            index_chunks=rag.index_chunks(),
+            device=rag.device,
+            cache_hits=stats["hits"],
+            cache_misses=stats["misses"],
+            cache_hit_ratio=stats["hit_ratio"],
         )
 
     @app.get(
