@@ -20,6 +20,8 @@ dependencies = [
     "grpcio>=1.83.1",
     "grpcio-tools>=1.83.1",
     "protobuf>=7.36.1",
+    "streamlit>=1.64.0",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
