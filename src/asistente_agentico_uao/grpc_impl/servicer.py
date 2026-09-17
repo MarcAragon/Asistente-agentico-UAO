@@ -98,8 +98,12 @@ class IndexAdminServicer(index_admin_pb2_grpc.IndexAdminServicer):
             await context.abort(
                 grpc.StatusCode.INTERNAL, f"El prune falló: {exc}"
             )
+        if removed:
+            # Los chunks podados pueden ser la fuente de respuestas ya
+            # cacheadas: se invalida el cache para no servir citas muertas.
+            self._state.cache.invalidar_todo()
         return index_admin_pb2.PruneResult(removed_chunks=removed)
-
+    
     async def IndexStatus(self, request, context):
         def _collect():
             collection = self._state.retriever.collection

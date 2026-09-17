@@ -51,6 +51,9 @@ class HealthResponse(BaseModel):
     status: str
     index_chunks: int
     device: str
+    cache_hits: int
+    cache_misses: int
+    cache_hit_ratio: float
 
 
 class DocumentInfo(BaseModel):
