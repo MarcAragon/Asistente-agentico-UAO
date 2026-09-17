@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .cache import SemanticCache
 from .chain import RagAnswer, answer_question
 from .config import Settings, resolve_embedding_device
 from .llm import CerebrasLLM
@@ -39,12 +40,21 @@ class AppState:
     retriever: Retriever
     llm: CerebrasLLM
     _device: str | None = field(default=None, repr=False)
+    cache: SemanticCache = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.cache = SemanticCache(config=self.config)
 
     def ask(self, question: str) -> RagAnswer:
-        """Ejecuta la cadena RAG completa (data plane, solo lectura)."""
-        return answer_question(
+        """Ejecuta la cadena RAG completa (data plane, solo lectura), con cache."""
+        cacheada = self.cache.buscar(question)
+        if cacheada is not None:
+            return cacheada
+        respuesta = answer_question(
             question, retriever=self.retriever, llm=self.llm, config=self.config
         )
+        self.cache.guardar(question, respuesta)
+        return respuesta
 
     def index_chunks(self) -> int:
         """Número de chunks en la colección (dispara la carga perezosa)."""
@@ -69,8 +79,9 @@ class AppState:
         ]
 
     def on_index_rebuilt(self) -> None:
-        """Tras un rebuild la colección anterior se borró: invalidar caché."""
+        """Tras un rebuild la coleccion anterior se borro: invalidar retriever y cache."""
         self.retriever.reset()
+        self.cache.invalidar_todo()
 
     @property
     def device(self) -> str:

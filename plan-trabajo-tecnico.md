@@ -474,6 +474,8 @@ frontend consume **solo** `POST /ask` (REST); nunca gRPC.
 | 7.8 | Pruebas | `tests/test_cache.py` con `fakeredis`: hit por similitud, miss, expiración por TTL, degradación sin Redis e invalidación por reindexado; `tests/test_frontend.py` para las funciones puras del cliente (llamada a la API y mapeo de errores con `httpx` mockeado). Humo manual: `uv run streamlit run frontend/app.py` contra la API local |
 | 7.9 | (nice-to-have §2.3) Retroalimentación | Botones «útil / no útil» por respuesta (contador en Redis o log JSON); se muestra solo con `UAO_RAG__FEEDBACK_ENABLED=1`; sin datos personales |
 
+Nota 2026-09-17 (decisión 7.5): para el desarrollo local de cache.py se usa fakeredis (simula un Redis completo en memoria dentro del proceso de Python) en lugar de una instancia real de Redis, porque el entorno de desarrollo del frontend no tiene Docker instalado. La interfaz que expone redis-py (y que usa fakeredis para simularla) es la misma tanto en desarrollo como en producción, así que el paso a Fase 8 (docker-compose con Redis real) es solo un cambio de configuración —apuntar el cliente al contenedor real en vez de a la instancia simulada—, no un cambio de código en cache.py. Los tests de tests/test_cache.py corren igualmente sobre fakeredis, como ya estaba contemplado en el plan original.
+
 **Criterio de aceptación F7**: `uv run streamlit run frontend/app.py` responde
 preguntas reales mostrando la respuesta y sus fuentes; una pregunta fuera de
 dominio muestra el estado de no-información **sin fuentes**; repetir una

@@ -168,7 +168,14 @@ def test_health_reporta_chunks_y_device(client):
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {"status": "ok", "index_chunks": 1284, "device": "cpu"}
+    assert body == {
+    "status": "ok",
+    "index_chunks": 1284,
+    "device": "cpu",
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "cache_hit_ratio": 0.0,
+    }
 
 
 def test_documents_agrega_chunks_por_documento(client):
