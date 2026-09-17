@@ -5,49 +5,14 @@ El historial se guarda solo para mostrarlo en pantalla: es un chat de una
 sola vuelta, no se reenvia como contexto al LLM.
 """
 
-import os
-
-import httpx
 import streamlit as st
-
-API_BASE_URL = os.getenv("UAO_RAG__API_BASE_URL", "http://localhost:8000")
+from client import preguntar_api
 
 PREGUNTAS_EJEMPLO = [
     "¿Qué pasa si repruebo tres veces una misma asignatura?",
     "¿Cuáles son los requisitos para obtener el título de magíster?",
     "¿Se puede hacer transferencia interna entre programas?",
 ]
-
-
-def preguntar_api(pregunta: str) -> dict:
-    """Llama a POST /ask y devuelve un mensaje listo para el historial."""
-    try:
-        respuesta = httpx.post(
-            f"{API_BASE_URL}/ask",
-            json={"question": pregunta},
-            timeout=30.0,
-        )
-        respuesta.raise_for_status()
-        datos = respuesta.json()
-        return {
-            "rol": "assistant",
-            "texto": datos["answer"],
-            "fuentes": datos["sources"],
-            "fallback": datos["used_fallback"],
-        }
-    except httpx.HTTPStatusError as exc:
-        codigo = exc.response.status_code
-        if codigo == 422:
-            texto = "La pregunta no es válida (vacía o muy larga)."
-        elif codigo == 503:
-            texto = "El asistente no tiene configurada la clave del modelo (CEREBRAS_API_KEY)."
-        else:
-            texto = f"Error interno de la API ({codigo})."
-        return {"rol": "assistant", "texto": texto, "fuentes": [], "fallback": True}
-    except httpx.RequestError:
-        texto = f"No se pudo conectar con la API. ¿Está corriendo en {API_BASE_URL}?"
-        return {"rol": "assistant", "texto": texto, "fuentes": [], "fallback": True}
-
 
 st.set_page_config(page_title="Asistente RAG UAO", page_icon="🎓")
 st.title("Asistente RAG UAO")
@@ -61,9 +26,12 @@ st.info(
 if "historial" not in st.session_state:
     st.session_state.historial = []
 
-# El chat_input siempre se ve anclado abajo, sin importar en que parte del
-# codigo se declare, asi que lo capturamos aqui arriba antes de dibujar el
-# historial.
+with st.sidebar:
+    st.header("Asistente RAG UAO")
+    st.caption("Universidad Autónoma de Occidente")
+    if st.button("🗑️ Limpiar conversación", use_container_width=True):
+        st.session_state.historial = []
+        
 pregunta_escrita = st.chat_input(
     "Escribe tu pregunta sobre la normativa UAO...", max_chars=500
 )

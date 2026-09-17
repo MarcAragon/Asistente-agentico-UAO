@@ -21,6 +21,7 @@ import json
 from dataclasses import asdict
 
 import numpy as np
+import redis
 
 from .chain import RagAnswer, Source
 from .config import Settings, settings
@@ -47,84 +48,93 @@ class SemanticCache:
             return None
         self._intento_conexion = True
         try:
-            import redis
-
             cliente = redis.Redis.from_url(
                 self.config.redis_url, decode_responses=True, socket_timeout=1
             )
             cliente.ping()
-        except Exception:
+        except redis.RedisError:
             return None
         self._client = cliente
         return cliente
 
     def buscar(self, pregunta: str) -> RagAnswer | None:
-        """Respuesta cacheada mas parecida a ``pregunta``, o ``None`` (miss)."""
         cliente = self._get_client()
         if cliente is None:
             return None
+        try:
+            vector = embed_query(pregunta)
+            mejor_hash = None
+            mejor_similitud = -1.0
+            for llave in cliente.keys(f"{PREFIJO}:embedding:*"):
+                candidato = np.array(json.loads(cliente.get(llave)), dtype=np.float32)
+                similitud = float(np.dot(vector, candidato))
+                if similitud > mejor_similitud:
+                    mejor_similitud = similitud
+                    mejor_hash = llave.rsplit(":", 1)[-1]
 
-        vector = embed_query(pregunta)
-        mejor_hash = None
-        mejor_similitud = -1.0
-        for llave in cliente.keys(f"{PREFIJO}:embedding:*"):
-            candidato = np.array(json.loads(cliente.get(llave)), dtype=np.float32)
-            similitud = float(np.dot(vector, candidato))
-            if similitud > mejor_similitud:
-                mejor_similitud = similitud
-                mejor_hash = llave.rsplit(":", 1)[-1]
+            if mejor_hash is None or mejor_similitud < self.config.cache_similarity:
+                cliente.incr(f"{PREFIJO}:stats:misses")
+                return None
 
-        if mejor_hash is None or mejor_similitud < self.config.cache_similarity:
-            cliente.incr(f"{PREFIJO}:stats:misses")
+            datos = cliente.get(f"{PREFIJO}:answer:{mejor_hash}")
+            if datos is None:
+                cliente.incr(f"{PREFIJO}:stats:misses")
+                return None
+
+            cliente.incr(f"{PREFIJO}:stats:hits")
+            return _deserializar(datos)
+        except redis.RedisError:
+            self._client = None  # fuerza reconexión en el próximo intento
             return None
-
-        datos = cliente.get(f"{PREFIJO}:answer:{mejor_hash}")
-        if datos is None:  # expiro por TTL entre la busqueda de embeddings y aqui
-            cliente.incr(f"{PREFIJO}:stats:misses")
-            return None
-
-        cliente.incr(f"{PREFIJO}:stats:hits")
-        return _deserializar(datos)
 
     def guardar(self, pregunta: str, respuesta: RagAnswer) -> None:
         """Guarda la respuesta y su embedding, con vigencia de cache_ttl_seconds."""
         cliente = self._get_client()
         if cliente is None:
             return
-
-        vector = embed_query(pregunta)
-        hash_ = _hash_pregunta(pregunta)
-        ttl = self.config.cache_ttl_seconds
-        cliente.set(f"{PREFIJO}:answer:{hash_}", _serializar(respuesta), ex=ttl)
-        cliente.set(f"{PREFIJO}:embedding:{hash_}", json.dumps(vector.tolist()), ex=ttl)
-        cliente.set(f"{PREFIJO}:question:{hash_}", pregunta, ex=ttl)
+        try:
+            vector = embed_query(pregunta)
+            hash_ = _hash_pregunta(pregunta)
+            ttl = self.config.cache_ttl_seconds
+            cliente.set(f"{PREFIJO}:answer:{hash_}", _serializar(respuesta), ex=ttl)
+            cliente.set(f"{PREFIJO}:embedding:{hash_}", json.dumps(vector.tolist()), ex=ttl)
+            cliente.set(f"{PREFIJO}:question:{hash_}", pregunta, ex=ttl)
+        except redis.RedisError:
+            self._client = None
 
     def invalidar_todo(self) -> None:
         """Borra todo lo cacheado (se llama tras un rebuild o prune del indice)."""
         cliente = self._get_client()
         if cliente is None:
             return
-        llaves = [
-            *cliente.keys(f"{PREFIJO}:answer:*"),
-            *cliente.keys(f"{PREFIJO}:embedding:*"),
-            *cliente.keys(f"{PREFIJO}:question:*"),
-        ]
-        if llaves:
-            cliente.delete(*llaves)
+        try:
+            llaves = [
+                *cliente.keys(f"{PREFIJO}:answer:*"),
+                *cliente.keys(f"{PREFIJO}:embedding:*"),
+                *cliente.keys(f"{PREFIJO}:question:*"),
+            ]
+            if llaves:
+                cliente.delete(*llaves)
+        except redis.RedisError:
+            self._client = None
 
     def estadisticas(self) -> dict[str, int | float]:
         """Contadores hit/miss/ratio (para exponer en /health)."""
         cliente = self._get_client()
         if cliente is None:
             return {"hits": 0, "misses": 0, "hit_ratio": 0.0}
-        hits = int(cliente.get(f"{PREFIJO}:stats:hits") or 0)
-        misses = int(cliente.get(f"{PREFIJO}:stats:misses") or 0)
-        total = hits + misses
-        return {
-            "hits": hits,
-            "misses": misses,
-            "hit_ratio": round(hits / total, 3) if total else 0.0,
-        }
+        try:
+            hits = int(cliente.get(f"{PREFIJO}:stats:hits") or 0)
+            misses = int(cliente.get(f"{PREFIJO}:stats:misses") or 0)
+            total = hits + misses
+            return {
+                "hits": hits,
+                "misses": misses,
+                "hit_ratio": round(hits / total, 3) if total else 0.0,
+            }
+        except redis.RedisError:
+            self._client = None
+            return {"hits": 0, "misses": 0, "hit_ratio": 0.0}
 
 
 def _hash_pregunta(pregunta: str) -> str:
