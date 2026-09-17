@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import httpx
 
-from frontend.client import preguntar_api
+from asistente_agentico_uao.frontend.client import preguntar_api
 
 URL_PRUEBA = "http://localhost:8000/ask"
 
