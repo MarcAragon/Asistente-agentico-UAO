@@ -83,7 +83,7 @@ presentan **tres perfiles de extracción**:
 3. **Embeddings**: modelo local **E5 multilingüe**
    (`intfloat/multilingual-e5-base`, ventana de 512 tokens) con prefijos
    asimétricos (`query:` / `passage:`), resolución de device en runtime
-   (`resolve_embedding_device()` en `src/asistente_agentico_uao/config.py`):
+   (`resolve_embedding_device()` en `src/asistente_agentico_uao/core/config.py`):
    CUDA (NVIDIA) → ROCm (AMD) → CPU. *(Actualizado en F2: mpnet-base se
    descartó porque su ventana de 128 tokens truncaba los chunks de ~400.)*
 4. **Vector DB**: ChromaDB `PersistentClient` (directorio `Data/chroma/`),
@@ -189,18 +189,22 @@ Asistente-agentico-UAO/
 │   ├── llama_cloud_parsing.py   # CLI PDFs → LlamaCloud Parse → Data/Documentos_MD/*.md
 │   └── ingest.py                # FASE 2: CLI chunking+embeddings → Chroma
 ├── src/asistente_agentico_uao/
-│   ├── __init__.py / py.typed    # paquete tipado (analizadores estáticos)
-│   ├── config.py                # Settings (pydantic-settings) + device resolver
+│   ├── __init__.py              # entrypoint de consola (pyproject: asistente-agentico-uao)
+│   ├── core/                    # infraestructura y adaptadores externos (sin dominio RAG)
+│   │   ├── config.py            # Settings (pydantic-settings) + device resolver
+│   │   ├── embeddings.py        # FASE 2: SentenceTransformer + device + tokenizador
+│   │   ├── vectorstore.py       # FASE 2: cliente Chroma + upsert + colección
+│   │   └── llm.py               # FASE 4: ChatCerebras + rotación de claves + NO_INFO_MESSAGE
+│   ├── rag/                     # dominio RAG (retrieval → chain → cache → service)
+│   │   ├── retrieval.py         # FASE 3: retriever top-k + umbral
+│   │   ├── chain.py             # FASE 4: cadena RAG LCEL completa
+│   │   ├── cache.py             # FASE 7: caché semántica en Redis (opcional)
+│   │   └── service.py           # FASE 5: AppState compartido REST/gRPC
 │   ├── ingestion/               # FASE 2/5: chunk.py + pipeline.py (ingesta compartida)
-│   ├── embeddings.py            # FASE 2: SentenceTransformer + device
-│   ├── vectorstore.py           # FASE 2: cliente Chroma + upsert + colección
-│   ├── retrieval.py             # FASE 3: retriever top-k + umbral
-│   ├── llm.py                   # FASE 4: ChatCerebras + prompt de síntesis
-│   ├── chain.py                 # FASE 4: cadena RAG LCEL completa
-│   ├── service.py               # FASE 5: AppState compartido REST/gRPC
 │   ├── api/                     # FASE 5: main.py (app FastAPI) + schemas.py
 │   ├── grpc_impl/               # FASE 5: proto + servicer + server (control de ingesta)
-│   └── cache.py                 # FASE 7: caché semántica en Redis (opcional)
+│   └── frontend/                # FASE 7: app.py (chat Streamlit) + client.py (cliente HTTP)
+
 ├── tests/                       # pytest (unit + integración) — se crea en Fase 2
 ├── asistente-uao-rag.md         # Documento base del proyecto
 ├── plan-trabajo-tecnico.md      # Este plan
@@ -211,15 +215,26 @@ Asistente-agentico-UAO/
 > **Nota 2026-09-15**: el paquete real es `src/asistente_agentico_uao/`
 > (no `uao_rag` como se planeó al inicio) y el corpus vive bajo `Data/`
 > (`Data/Documentos/` los PDFs, `Data/Documentos_MD/` el markdown
-> parseado). Ya existen `Data/chroma/` (índice de 1284 chunks), `tests/`
-> (68 pruebas), `api/`, `grpc_impl/` y `service.py`; `frontend/`, `deploy/`
-> y `cache.py` se crean en la Fase 7.
+> parseado). Ya existen `Data/chroma/` (índice de 1284 chunks), `tests/`,
+> `api/`, `grpc_impl/`, `frontend/` y `cache.py`.
+>
+> **Nota 2026-09-17 (refactor de estructura)**: los módulos que estaban
+> sueltos en la raíz del paquete se agruparon por capa: `core/`
+> (config, embeddings, vectorstore, llm — infraestructura y adaptadores) y
+> `rag/` (retrieval, chain, cache, service — dominio RAG). Se añadió
+> `ingestion/__init__.py`, que faltaba (era namespace package). Regla de
+> dependencias: `core` no importa de `rag`; `rag` e `ingestion` solo
+> importan de `core`; `api`, `grpc_impl` y `frontend` son la capa de
+> entrada. Los imports (incluidos tests y scripts) se actualizaron a las
+> rutas nuevas, p. ej. `asistente_agentico_uao.core.config` y
+> `asistente_agentico_uao.rag.chain`; no se dejaron alias de
+> compatibilidad a propósito, para que una ruta vieja falle de inmediato.
 
 ---
 
 ## 3. Contratos técnicos
 
-### 3.1 Configuración (`src/asistente_agentico_uao/config.py`, prefijo `UAO_RAG__`)
+### 3.1 Configuración (`src/asistente_agentico_uao/core/config.py`, prefijo `UAO_RAG__`)
 
 | Variable | Default | Uso |
 |---|---|---|

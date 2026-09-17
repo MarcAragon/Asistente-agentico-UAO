@@ -30,7 +30,7 @@ Marca **uno** como principal (y otros si esta PR es mixta):
 
 Selecciona todas las áreas que toca esta PR:
 
-- [ ] **Configuración central** (`src/asistente_agentico_uao/config.py`, `.env.example`, `.gitignore`)
+- [ ] **Configuración central** (`src/asistente_agentico_uao/core/config.py`, `.env.example`, `.gitignore`)
 - [ ] **Preprocesamiento de documentos** (`scripts/llama_cloud_parsing.py`, `Data/Documentos_MD/`)
 - [ ] **Ingesta & Chunking** (índice de embeddings, Chroma)
 - [ ] **Recuperación & Embeddings** (`sentence-transformers`, `chromadb`)
@@ -58,7 +58,7 @@ Tras validar la cadena RAG y la integración con el LLM de Cerebras en la Fase 4
   - `server.py`: Servidor `IndexAdmin` que utiliza `grpc.aio`. Soporta modo embebido (compartiendo recursos con REST) o standalone.
   - `servicer.py`: Implementación de los RPCs `Ingest` (con streaming de progreso y métricas de tokens), `PruneIndex` y `IndexStatus`.
   - `stubs/`: Clientes y servidores generados desde el contrato Protobuf.
-- **`src/asistente_agentico_uao/service.py`**: Introducción de `AppState` como contenedor inyectable de estado compartido (configuración, retriever, LLM).
+- **`src/asistente_agentico_uao/rag/service.py`**: Introducción de `AppState` como contenedor inyectable de estado compartido (configuración, retriever, LLM).
 - **Pruebas de interfaz**:
   - `tests/test_api.py` (9 pruebas): Cubre flujo feliz con fuentes, validaciones de esquema, manejo de errores 503 (sin API keys) y 500.
   - `tests/test_grpc.py` (6 pruebas): Verifica el streaming de ingesta, control de errores internos y reset de la colección tras rebuild.

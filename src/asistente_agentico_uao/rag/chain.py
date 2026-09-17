@@ -33,8 +33,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 
-from .config import Settings, settings
-from .llm import NO_INFO_MESSAGE, get_llm
+from ..core.config import Settings, settings
+from ..core.llm import NO_INFO_MESSAGE, get_llm
 from .retrieval import RetrievedChunk, Retriever, format_context
 
 # Longitud del excerpt citado en Source (texto continuo, sin saltos).
@@ -199,9 +199,11 @@ def answer_question(
             used_fallback=True,
         )
 
-    answer = _generation_chain(llm).invoke(
-        {"question": question, "context": format_context(chunks)}
-    ).strip()
+    answer = (
+        _generation_chain(llm)
+        .invoke({"question": question, "context": format_context(chunks)})
+        .strip()
+    )
 
     if not answer:
         # Defensa: el LLM no debe devolver vacío (solo ocurrió pre-disable
@@ -215,4 +217,3 @@ def answer_question(
         model=cfg.llm_model,
         used_fallback=(answer == NO_INFO_MESSAGE),
     )
-

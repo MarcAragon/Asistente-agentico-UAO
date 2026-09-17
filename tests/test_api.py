@@ -9,10 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from asistente_agentico_uao.api.main import create_app
-from asistente_agentico_uao.config import Settings
-from asistente_agentico_uao.llm import NO_INFO_MESSAGE
-from asistente_agentico_uao.retrieval import RetrievedChunk
-from asistente_agentico_uao.service import AppState
+from asistente_agentico_uao.core.config import Settings
+from asistente_agentico_uao.core.llm import NO_INFO_MESSAGE
+from asistente_agentico_uao.rag.retrieval import RetrievedChunk
+from asistente_agentico_uao.rag.service import AppState
 
 
 def make_chunk(doc: str, section: str, text: str) -> RetrievedChunk:
@@ -169,12 +169,12 @@ def test_health_reporta_chunks_y_device(client):
     assert response.status_code == 200
     body = response.json()
     assert body == {
-    "status": "ok",
-    "index_chunks": 1284,
-    "device": "cpu",
-    "cache_hits": 0,
-    "cache_misses": 0,
-    "cache_hit_ratio": 0.0,
+        "status": "ok",
+        "index_chunks": 1284,
+        "device": "cpu",
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "cache_hit_ratio": 0.0,
     }
 
 

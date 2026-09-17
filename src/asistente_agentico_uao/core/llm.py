@@ -16,7 +16,7 @@ autenticación, 5xx, timeouts de conexión).
   429 cuando no hay más claves a las que rotar.
 
 Aquí vive también ``NO_INFO_MESSAGE``: el mensaje exacto de no-información
-que el prompt de la cadena (``chain.py``) ordena copiar cuando el contexto
+que el prompt de la cadena (``rag/chain.py``) ordena copiar cuando el contexto
 no alcanza. Centralizado para que prompt, cadena y post-proceso usen la
 misma cadena literal.
 
@@ -37,8 +37,7 @@ from .config import Settings, settings
 # contexto. El prompt exige copiarlo literal; chain.py lo detecta para
 # devolver sources=[] y used_fallback=True.
 NO_INFO_MESSAGE = (
-    "No tengo información suficiente en la normativa UAO para responder "
-    "esa pregunta."
+    "No tengo información suficiente en la normativa UAO para responder esa pregunta."
 )
 
 # Códigos HTTP transitorios del servicio (timeout de upstream, errores de

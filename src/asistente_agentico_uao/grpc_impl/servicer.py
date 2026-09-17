@@ -60,9 +60,7 @@ class IndexAdminServicer(index_admin_pb2_grpc.IndexAdminServicer):
             except BaseException as exc:  # noqa: BLE001 - se reporta por el stream
                 progress.put(exc)
 
-        threading.Thread(
-            target=worker, daemon=True, name="ingesta-indexadmin"
-        ).start()
+        threading.Thread(target=worker, daemon=True, name="ingesta-indexadmin").start()
 
         loop = asyncio.get_running_loop()
         done = 0
@@ -95,15 +93,13 @@ class IndexAdminServicer(index_admin_pb2_grpc.IndexAdminServicer):
         try:
             removed = await asyncio.to_thread(prune_index)
         except Exception as exc:  # noqa: BLE001 - error controlado INTERNAL
-            await context.abort(
-                grpc.StatusCode.INTERNAL, f"El prune falló: {exc}"
-            )
+            await context.abort(grpc.StatusCode.INTERNAL, f"El prune falló: {exc}")
         if removed:
             # Los chunks podados pueden ser la fuente de respuestas ya
             # cacheadas: se invalida el cache para no servir citas muertas.
             self._state.cache.invalidar_todo()
         return index_admin_pb2.PruneResult(removed_chunks=removed)
-    
+
     async def IndexStatus(self, request, context):
         def _collect():
             collection = self._state.retriever.collection

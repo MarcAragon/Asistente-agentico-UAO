@@ -17,10 +17,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..core.config import Settings, resolve_embedding_device
+from ..core.llm import CerebrasLLM
 from .cache import SemanticCache
 from .chain import RagAnswer, answer_question
-from .config import Settings, resolve_embedding_device
-from .llm import CerebrasLLM
 from .retrieval import Retriever
 
 
@@ -87,7 +87,5 @@ class AppState:
     def device(self) -> str:
         """Dispositivo de inferencia de embeddings (resuelto una sola vez)."""
         if self._device is None:
-            self._device = (
-                self.config.embedding_device or resolve_embedding_device()
-            )
+            self._device = self.config.embedding_device or resolve_embedding_device()
         return self._device

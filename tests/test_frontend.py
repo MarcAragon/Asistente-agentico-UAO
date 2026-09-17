@@ -22,7 +22,12 @@ def test_pregunta_exitosa_devuelve_respuesta_y_fuentes(monkeypatch):
     payload = {
         "answer": "Si repruebas tres veces...",
         "sources": [
-            {"doc_name": "Res-CA-6744.pdf", "section": "Art 70", "score": 0.88, "excerpt": "..."}
+            {
+                "doc_name": "Res-CA-6744.pdf",
+                "section": "Art 70",
+                "score": 0.88,
+                "excerpt": "...",
+            }
         ],
         "model": "qwen-3.8-27b",
         "used_fallback": False,

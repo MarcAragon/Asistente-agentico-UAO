@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable
 
+from ..ingestion.chunk import Chunk
 from .config import settings
-from .ingestion.chunk import Chunk
 
 COLLECTION_NAME = "uao_normativa"
 UPSERT_BATCH = 256

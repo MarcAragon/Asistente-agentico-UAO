@@ -2,7 +2,7 @@
 
 import pytest
 
-from asistente_agentico_uao import config
+from asistente_agentico_uao.core import config
 
 
 def test_resolve_embedding_device_returns_configured_device(monkeypatch):

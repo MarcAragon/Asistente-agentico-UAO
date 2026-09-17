@@ -31,9 +31,7 @@ class FakeCollection:
 
     def get(self, include=None):
         return {
-            "metadatas": [
-                {"doc_name": d, "chunk_index": 0} for d in self._doc_names
-            ]
+            "metadatas": [{"doc_name": d, "chunk_index": 0} for d in self._doc_names]
         }
 
 
@@ -62,12 +60,20 @@ class FakeState:
 def _fake_summaries() -> list[IngestSummary]:
     return [
         IngestSummary(
-            doc_name="A.pdf", n_chunks=3, seconds=0.1,
-            token_p50=100, token_p90=120, token_max=140,
+            doc_name="A.pdf",
+            n_chunks=3,
+            seconds=0.1,
+            token_p50=100,
+            token_p90=120,
+            token_max=140,
         ),
         IngestSummary(
-            doc_name="B.md", n_chunks=5, seconds=0.2,
-            token_p50=90, token_p90=110, token_max=130,
+            doc_name="B.md",
+            n_chunks=5,
+            seconds=0.2,
+            token_p50=90,
+            token_p90=110,
+            token_max=130,
         ),
     ]
 
@@ -104,9 +110,7 @@ def test_ingest_emite_progreso_en_streaming(monkeypatch):
             for summary in _fake_summaries():
                 on_summary(summary)
 
-        monkeypatch.setattr(
-            servicer_mod, "markdown_paths", lambda fm=None: ["A", "B"]
-        )
+        monkeypatch.setattr(servicer_mod, "markdown_paths", lambda fm=None: ["A", "B"])
         monkeypatch.setattr(servicer_mod, "ingest_documents", fake_ingest)
 
         state = FakeState()
@@ -199,4 +203,3 @@ def test_index_status(monkeypatch):
         assert response.documents == 2
         assert response.embedding_model == "fake-model"
         assert response.device == "cpu"
-
