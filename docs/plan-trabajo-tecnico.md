@@ -34,6 +34,7 @@
 | `llama-cloud` (SDK LlamaCloud Parse) | 2.16.0 | ✅ Parseo PDF → markdown |
 | `fastapi` / `uvicorn[standard]` | 0.141.1 / 0.52.4 | ✅ Import OK |
 | `pytest` / `ruff` (dev) | 9.1.1 / 0.16.6 | ✅ |
+| `fakeredis` / `pyyaml` (dev) | >=2.38.0 / >=6.0.3 | ✅ fakeredis simula Redis en desarrollo y tests del caché (F7); `pyyaml` parsea `docker-compose.yml` en `tests/test_deployment.py` (F8) |
 
 > **Cambio 2026-09-09**: se retiraron del proyecto `pymupdf` y `easyocr`
 > (con sus transitivas: `torchvision`, etc.). El parseo de PDFs ya no es
@@ -130,7 +131,7 @@ presentan **tres perfiles de extracción**:
                         ┌──────────────────────────────────────────────┐
                         │              BACKEND (este plan)             │
                         │                                              │
- Data/Documentos/*.pdf►│  INGESTA (offline, CLI)                      │
+ Data/Documentos/*.pdf►│  INGESTA (offline: CLI o gRPC IndexAdmin)    │
    20 PDFs oficiales    │  scripts/llama_cloud_parsing.py              │
                         │   └─ LlamaCloud Parse (agentic, API nube)    │
                         │      └─ Data/Documentos_MD/*.md (limpio)     │
@@ -161,9 +162,11 @@ Flujo de datos:
 1. **Offline (ingesta)**: PDF → LlamaCloud Parse (API agentic, markdown) →
    limpieza ligera → `Data/Documentos_MD/*.md` → chunking por encabezados →
    embeddings → Chroma (upsert con metadatos de cita).
-2. **Online (consulta)**: pregunta → embed query → búsqueda top-k en
-   Chroma → filtro por umbral de similitud → prompt con contexto y regla
-   de citación → LLM (Cerebras) → respuesta JSON con `sources[]`.
+2. **Online (consulta)**: caché semántica (F7: hit por similitud de la
+   pregunta → respuesta guardada con sus fuentes) → si no hay hit,
+   embed query → búsqueda top-k en Chroma → filtro por umbral de
+   similitud → prompt con contexto y regla de citación → LLM (Cerebras) →
+   respuesta JSON con `sources[]` (que se guarda en caché).
 3. **Umbral de "no sé"**: si ningún fragmento supera
    `min_similarity`, la cadena ni siquiera llama al LLM: responde
    `{"answer": "No tengo información suficiente...", "sources": []}`.
@@ -205,9 +208,19 @@ Asistente-agentico-UAO/
 │   ├── grpc_impl/               # FASE 5: proto + servicer + server (control de ingesta)
 │   └── frontend/                # FASE 7: app.py (chat Streamlit) + client.py (cliente HTTP)
 
-├── tests/                       # pytest (unit + integración) — se crea en Fase 2
-├── asistente-uao-rag.md         # Documento base del proyecto
-├── plan-trabajo-tecnico.md      # Este plan
+├── docker/                      # FASE 8: Dockerfile (backend), Dockerfile.frontend
+│                                #         y Caddyfile (proxy inverso TLS)
+├── docker-compose.yml           # FASE 8: redis + api + frontend + proxy (solo 80/443)
+├── .dockerignore                # FASE 8: sin .env, .venv, cachés ni Data/ en el build
+├── tests/                       # pytest (unit + integración + despliegue estático)
+├── Makefile                     # atajos: dev, pipeline, docker, operación y respaldos
+├── README.md                    # README técnico (arquitectura, contratos, comandos)
+├── .streamlit/config.toml       # tema del chat Streamlit (base oscura, #2E5EAA)
+├── .github/PULL_REQUEST_TEMPLATE.md  # plantilla de PR (Conventional Commits)
+├── docs/
+│   ├── asistente-uao-rag.md     # Documento base del proyecto
+│   ├── plan-trabajo-tecnico.md  # Este plan (movido a docs/ el 2026-09-17)
+│   └── guia-despliegue.md       # FASE 8: despliegue, TLS, respaldos y troubleshooting
 ├── pyproject.toml / uv.lock     # gestión con uv (nunca pip)
 └── .env / .env.example          # claves API; .env es copia de .env.example (gitignored)
 ```
@@ -229,6 +242,9 @@ Asistente-agentico-UAO/
 > rutas nuevas, p. ej. `asistente_agentico_uao.core.config` y
 > `asistente_agentico_uao.rag.chain`; no se dejaron alias de
 > compatibilidad a propósito, para que una ruta vieja falle de inmediato.
+En F8, `docker/Dockerfile.frontend` añade `frontend/` al `sys.path`
+para que `app.py` siga importando `from client import preguntar_api`
+sin depender del paquete instalado.
 
 ---
 
@@ -248,6 +264,11 @@ Asistente-agentico-UAO/
 | `UAO_RAG__MIN_SIMILARITY` | `0.35` | Umbral para responder "no sé" |
 | `UAO_RAG__EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | Modelo de embeddings (E5 multilingüe, prefijos `query:`/`passage:`) |
 | `UAO_RAG__EMBEDDING_DEVICE` | vacío (auto) | Forzar `cuda`/`cpu` si se desea |
+| `UAO_RAG__EMBEDDING_BATCH_SIZE` | `16` | Tamaño de lote del `encode` (16 en contenedor; 32 era el valor inicial local) |
+| `UAO_RAG__CHUNK_SIZE_TOKENS` | `400` | Objetivo de tokens del chunk final (F2) |
+| `UAO_RAG__CHUNK_MAX_TOKENS` | `450` | Techo duro del chunk; bajo `max_seq_length` de E5 (512) |
+| `UAO_RAG__CHUNK_OVERLAP_TOKENS` | `70` | Oraciones finales repetidas en el chunk siguiente (solo intra-sección) |
+| `UAO_RAG__CHUNK_MIN_TOKENS` | `80` | Chunks menores se fusionan con el anterior de la misma sección |
 | `UAO_RAG__LLM_MODEL` | `qwen-3.8-27b` | Modelo en Cerebras |
 | `UAO_RAG__LLM_TEMPERATURE` | `0.1` | Temperatura de síntesis (F4) |
 | `UAO_RAG__LLM_MAX_TOKENS` | `1024` | Techo de tokens de la respuesta (F4) |
@@ -300,9 +321,15 @@ Asistente-agentico-UAO/
   "model": "qwen-3.8-27b",
   "used_fallback": false
 }
+
+// Con el caché activado (F7), un hit por similitud devuelve exactamente
+// este esquema: la respuesta guardada con sus fuentes y su "model"
+// original, sin llamada al LLM (válido también para used_fallback=true).
 ```
 
-`GET /health` → `{"status": "ok", "index_chunks": 1234, "device": "cuda"}`
+`GET /health` → `{"status": "ok", "index_chunks": 1284, "device": "cuda",
+"cache_hits": 0, "cache_misses": 0, "cache_hit_ratio": 0.0}` (los tres
+últimos, implementados en F7: contadores del caché semántico).
 `GET /documents` → lista de documentos indexados (para trazabilidad).
 
 Reglas:
@@ -314,6 +341,11 @@ Reglas:
 - CORS abierto (`*`) para el futuro frontend. ✅ **Consumido por el frontend
   de la Fase 7** (`frontend/app.py`): es el único contrato HTTP que usa; el
   contrato gRPC (`IndexAdmin`) es interno y no navegable.
+- **En producción (F8)**: la REST se publica bajo el prefijo `/api` del proxy
+  Caddy (`handle_path` elimina el prefijo; uvicorn arranca con `--root-path
+  /api` para que la documentación OpenAPI quede en `https://<host>/api/docs`);
+  dentro de la red interna el frontend habla directamente con
+  `http://api:8000`.
 
 ---
 
@@ -323,7 +355,7 @@ Reglas:
 `uv init`, `uv add` de todas las dependencias, `.env.example`, `.gitignore`,
 validación de imports y de CUDA. Hecho (ver §0.1).
 
-### Fase 1 — Ingesta con LlamaCloud Parse (extracción + limpieza) — EN CURSO
+### Fase 1 — Ingesta con LlamaCloud Parse (extracción + limpieza) — ✅ COMPLETADA (2026-09-09)
 
 **Método nuevo (2026-09-09)**: el pipeline local PyMuPDF+EasyOCR y sus 6
 etapas de limpieza se retiraron del proyecto (dependencias, `extract.py`,
@@ -354,18 +386,28 @@ de página, imágenes). Este markdown es la entrada directa del chunking
 `.md` en `Data/Documentos_MD/` (fidelidad al original, tablas legibles, sin
 basura). Iterar sobre `clean_markdown` según hallazgos.
 
-### Fase 2 — Chunking + embeddings + indexación Chroma
+### Fase 2 — Chunking + embeddings + indexación Chroma — ✅ COMPLETADA
 | # | Tarea | Detalle técnico |
 |---|---|---|
-| 2.1 | `ingestion/chunk.py` | Entrada: `Data/Documentos_MD/*.md`. Chunking por párrafos a 300–500 tokens (`len//4` como proxy o tokenizador del modelo), overlap ~15%, con encabezados markdown (`##`/`###`) y límites de artículo/numeral como frontera dura; registra `section` (encabezado vigente) por chunk |
-| 2.2 | `embeddings.py` | `SentenceTransformer(settings.embedding_model, device=resolve_embedding_device())`; `encode(..., batch_size=32, normalize_embeddings=True)` → similitud coseno |
+| 2.1 | `ingestion/chunk.py` | Entrada: `Data/Documentos_MD/*.md`. Chunking por párrafos a 300–500 tokens (`len//4` como proxy o tokenizador del modelo), overlap ~15%, con encabezados markdown (`##`/`###`) y límites de artículo/numeral como frontera dura; registra `section` (encabezado vigente) por chunk. *Implementado*: prefijo contextual `doc — section` incluido en el conteo, `chunk_max_tokens=450` como techo (por debajo del `max_seq_length` de E5), overlap solo intra-sección y fusión de chunks menores a `chunk_min_tokens=80`; parámetros en §3.1 |
+| 2.2 | `embeddings.py` | `SentenceTransformer(settings.embedding_model, device=resolve_embedding_device())`; `encode(..., batch_size=32, normalize_embeddings=True)` → similitud coseno. *Implementado*: normalización y prefijos `query:`/`passage:` de E5; batch configurable (`UAO_RAG__EMBEDDING_BATCH_SIZE=16` en `.env.example`) |
 | 2.3 | `vectorstore.py` | `PersistentClient(path=chroma_dir)`; `get_or_create_collection("uao_normativa", metadata={"hnsw:space": "cosine"})`; `upsert` con IDs SHA-256 |
 | 2.4 | `scripts/ingest.py` | CLI: `Data/Documentos_MD/*.md` → chunks → Chroma; reporta nº de chunks/doc y tiempo; flag `--rebuild` (borra colección) |
 | 2.5 | Tests | `chunk.py` con Chroma efímero (`EphemeralClient`) + modelo real de embeddings (test marcado `@pytest.mark.slow`) |
 
-**Criterio de aceptación F2**: índice reproducible — correr el CLI dos
-veces no duplica chunks (upsert); `collection.count()` estable; query de
-humo retorna fragmentos relevantes con `page` correcto.
+> **Nota (2026-09-17)**: los detalles de implementación del chunking
+> (prefijo contextual, techo de 450 tokens, overlap intra-sección y fusión de
+> chunks cortos) no se habían asentado en este plan; se documentan ahora con
+> los valores reales del código. Las métricas del índice (1284 chunks / 20
+> documentos, ~24 MB en `Data/chroma/`) son consistentes con lo registrado
+> en F3 y F5.
+
+**Criterio de aceptación F2**: ✅ COMPLETADA — índice reproducible (correr
+el CLI dos veces no duplica chunks: upsert con ID SHA-256);
+`collection.count()` estable en **1284 chunks / 20 documentos** (~24 MB en
+`Data/chroma/`); humo con `scripts/smoke_retrieval.py` (banco de 10
+preguntas + `--pregunta` ad-hoc). Las citas son (documento, sección): el
+campo `page` desapareció con la migración a LlamaParse (§3.2).
 
 ### Fase 3 — Motor de recuperación — ✅ COMPLETADA (2026-09-14)
 | # | Tarea | Estado |
@@ -420,7 +462,14 @@ F3 sigue vigente); (b) en 2 preguntas in-dominio ("cancelaciones 2026-2",
 chunks recuperados eran de otro programa/periodo: evaluar recall del banco
 y si las tablas de calendario contienen la fecha puntual.
 
-### Fase 5 — API: REST (consulta) + gRPC (control de ingesta)
+**Notas F4 (complementarias, 2026-09-17)**: (a) la rotación de claves
+(`CEREBRAS_API_KEYS`) cubre 429 **y también 401/403** (clave inválida); el
+catálogo vigente según `.env.example` es `qwen-3.8-27b` (default) y
+`gpt-oss-120b` como alternativa; (b) `collect_api_keys` en `core/llm.py`
+centraliza la lectura de claves y la API responde 503 cuando no hay
+ninguna configurada.
+
+### Fase 5 — API: REST (consulta) + gRPC (control de ingesta) — ✅ COMPLETADA (2026-09-15)
 
 **Separación de funciones** (decisión 2026-09-15): cada protocolo cumple un
 rol distinto y NO se duplican operaciones.
@@ -438,12 +487,15 @@ rol distinto y NO se duplican operaciones.
 | 5.3 | gRPC | `grpc_impl/servicer.py` (pipeline en hilo worker + streaming de progreso; INVALID_ARGUMENT/INTERNAL) y `grpc_impl/server.py` (embebido en el lifespan o standalone) |
 | 5.4 | Pipeline compartido | `ingestion/pipeline.py`: lógica del CLI F2 extraída a funciones (CLI y gRPC ejecutan el mismo código); `scripts/ingest_client.py` como cliente de humo |
 | 5.5 | Tests | `test_api.py` (TestClient: 422/200/503/500, health, documents), `test_grpc.py` (servidor aio in-proceso: streaming, códigos, prune, status), `test_pipeline.py` — sin tokens ni modelo real |
-| 5.6 | Docs | README (ejecución de ambas APIs), `.env.example` (`UAO_RAG__GRPC_ENABLED/PORT`) |
+| 5.6 | Docs | README (ejecución de ambas APIs), `.env.example` (`UAO_RAG__GRPC_ENABLED/PORT`); la plantilla de PR (`.github/PULL_REQUEST_TEMPLATE.md`, convención de Conventional Commits) se creó en esta fase y se sigue usando |
 
 **Criterio de aceptación F5**: ✅ `curl -X POST /ask` → 200 con `answer` +
 `sources[]` verificables (humo real: `/health` 1284 chunks/cuda,
 `/documents` 20 docs, 422 en pregunta en blanco); `IndexStatus` por gRPC →
-1284 chunks/20 documentos; suite `uv run pytest` 68/68 y ruff en verde.
+1284 chunks/20 documentos; suite `uv run pytest` 68/68 y ruff en verde
+(95/95 desde F8, con los tests de caché/frontend/despliegue añadidos).
+`GET /health` expone además los contadores del caché (`cache_hits`,
+`cache_misses`, `cache_hit_ratio`).
 
 **Notas F5**: (a) el modelo de embeddings se carga una vez y lo comparten
 REST y gRPC (mismo proceso); (b) tras un `rebuild` por gRPC se invalida la
@@ -479,19 +531,21 @@ frontend consume **solo** `POST /ask` (REST); nunca gRPC.
 
 | # | Tarea | Detalle técnico |
 |---|---|---|
-| 7.1 | `frontend/app.py` (chat) | Streamlit: `st.chat_input` + `st.chat_message`; cada pregunta viaja a `POST /ask` con `httpx` (`UAO_RAG__API_BASE_URL`, timeout explícito); `st.session_state` guarda el historial **de la sesión** solo para mostrarlo (no se reenvía como contexto al LLM: una vuelta) |
+| 7.1 | `src/asistente_agentico_uao/frontend/app.py` (chat) | Streamlit: `st.chat_input` + `st.chat_message`; cada pregunta viaja a `POST /ask` con `httpx` (`UAO_RAG__API_BASE_URL`, timeout explícito); `st.session_state` guarda el historial **de la sesión** solo para mostrarlo (no se reenvía como contexto al LLM: una vuelta); tema en `.streamlit/config.toml` (base oscura, color institucional `#2E5EAA`) |
 | 7.2 | Respuesta y fuentes | Respuesta en markdown + `st.expander("Fuentes (n)")` con `doc_name`, `section`, `score` (2 decimales) y `excerpt`; si `used_fallback=true` → aviso ámbar «no hay información suficiente en la normativa» y **cero fuentes**; el backend ya descarta citas no verificables, la UI nunca las inventa |
 | 7.3 | UX y robustez | `st.spinner` con estado mientras responde el LLM (~0.3-0.6 s medidos, pero sin pantalla congelada); límite de 500 caracteres con contador (contrato §3.3); preguntas de ejemplo (incluye jerga/typos, doc base §1.5); errores mapeados a mensajes claros: `422` (pregunta vacía/larga), `503` (sin clave de LLM), `500` y API caída (timeout/conexión) |
 | 7.4 | Aviso y privacidad | Aviso visible «respuestas orientativas con la fuente oficial citada; no reemplaza la asesoría de Secretaría Académica»; el chat no solicita ni almacena datos personales (Ley 1581 de 2012, doc base §1.4): la caché guarda preguntas y respuestas, nunca identidades |
 | 7.5 | `cache.py` (caché semántica) | `redis-py`: índice de preguntas + hash del embedding de la pregunta normalizada; **hit** si la similitud ≥ `UAO_RAG__CACHE_SIMILARITY` (se reutiliza el modelo E5 ya cargado, sin modelo extra); valor = `RagAnswer` serializado (respuesta, fuentes, `model`, `used_fallback`); `TTL` = `UAO_RAG__CACHE_TTL_SECONDS`; contadores hit/miss/ratio visibles en `/health`; **degradable**: sin Redis o con `CACHE_ENABLED=0` la API responde igual |
 | 7.6 | Integración e invalidación | El caché se consulta en `service.py` (capa compartida REST/gRPC) **antes** de `answer_question`, así la REST y futuras integraciones lo aprovechan; `Ingest(rebuild)` y `PruneIndex` del servicio gRPC invalidan el caché, y las claves se versionan con la huella del índice (`count()` + timestamp) para no servir respuestas de un corpus viejo |
-| 7.7 | Proxy inverso TLS | `deploy/Caddyfile` (o `nginx.conf`): terminación TLS automática en `:443`, redirección HTTP→HTTPS y cabeceras de seguridad; la API (:8000), gRPC (:50051) y Redis (:6379) quedan **solo** en la red interna del compose, sin publicarse al host |
-| 7.8 | Pruebas | `tests/test_cache.py` con `fakeredis`: hit por similitud, miss, expiración por TTL, degradación sin Redis e invalidación por reindexado; `tests/test_frontend.py` para las funciones puras del cliente (llamada a la API y mapeo de errores con `httpx` mockeado). Humo manual: `uv run streamlit run frontend/app.py` contra la API local |
-| 7.9 | (nice-to-have §2.3) Retroalimentación | Botones «útil / no útil» por respuesta (contador en Redis o log JSON); se muestra solo con `UAO_RAG__FEEDBACK_ENABLED=1`; sin datos personales |
+| 7.7 | Proxy inverso TLS | ✅ `docker/Caddyfile` (F8, 2026-09-17): terminación TLS automática en `:443` (`tls {$TLS_DIRECTIVE:internal}`, CA local o ACME), redirección HTTP→HTTPS y cabeceras de seguridad; `/` → Streamlit, `/api/*` → REST, `/healthz` → proxy; la API (:8000), gRPC (:50051) y Redis (:6379) quedan **solo** en la red interna del compose, sin publicarse al host |
+| 7.8 | Pruebas | `tests/test_cache.py` con `fakeredis`: hit por similitud, miss, expiración por TTL, degradación sin Redis e invalidación por reindexado; `tests/test_frontend.py` para las funciones puras del cliente (llamada a la API y mapeo de errores con `httpx` mockeado). Humo manual: `uv run streamlit run
+src/asistente_agentico_uao/frontend/app.py` contra la API local |
+| 7.9 | (nice-to-have §2.3) Retroalimentación | Botones «útil / no útil» por respuesta (contador en Redis o log JSON); se muestra solo con `UAO_RAG__FEEDBACK_ENABLED=1`; sin datos personales. **Estado**: pendiente (nice-to-have); la infraestructura de contadores ya existe en `rag/cache.py` (hits/misses del caché) |
 
 Nota 2026-09-17 (decisión 7.5): para el desarrollo local de cache.py se usa fakeredis (simula un Redis completo en memoria dentro del proceso de Python) en lugar de una instancia real de Redis, porque el entorno de desarrollo del frontend no tiene Docker instalado. La interfaz que expone redis-py (y que usa fakeredis para simularla) es la misma tanto en desarrollo como en producción, así que el paso a Fase 8 (docker-compose con Redis real) es solo un cambio de configuración —apuntar el cliente al contenedor real en vez de a la instancia simulada—, no un cambio de código en cache.py. Los tests de tests/test_cache.py corren igualmente sobre fakeredis, como ya estaba contemplado en el plan original.
 
-**Criterio de aceptación F7**: `uv run streamlit run frontend/app.py` responde
+**Criterio de aceptación F7**: `uv run streamlit run
+src/asistente_agentico_uao/frontend/app.py` responde
 preguntas reales mostrando la respuesta y sus fuentes; una pregunta fuera de
 dominio muestra el estado de no-información **sin fuentes**; repetir una
 pregunta frecuente (o su paráfrasis) se resuelve desde caché en ≲50 ms y se
@@ -500,20 +554,72 @@ lenta); el acceso público es HTTPS vía proxy y ni la API ni gRPC quedan
 expuestos. Alineado con las tareas Kanban 008 (5 SP) y la parte de UI/Redis
 de la 010.
 
-### Fase 8 — Contenerización y documentación (solución completa)
-| # | Tarea | Detalle técnico |
-|---|---|---|
-| 8.1 | `Dockerfile` backend | Multi-stage sobre `python:3.14-slim` (versión fijada en `.python-version`); instala `uv`; `uv sync --frozen`; el índice se pre-construye y se monta como volumen (`Data/chroma`) para no descargar el modelo de embeddings en cada build |
-| 8.2 | `Dockerfile` frontend | Imagen ligera para Streamlit (`frontend/app.py`); sin dependencias de ML (es solo un cliente HTTP de la API) |
-| 8.3 | `docker-compose.yml` | Servicios: `proxy` (TLS, único puerto expuesto), `frontend` (:8501 interno), `api` (:8000 interno + :50051 gRPC interno), `redis` (caché) y volumen `data/`; `env_file: .env`; `depends_on` con `healthcheck` por servicio; red interna |
-| 8.4 | README técnico + `Makefile`/`justfile` | Instalación, ingesta, arranque, contrato API y CLI, arquitectura y operación (logs, rebuild del índice, invalidación de caché); atajos: `make ingest`, `make api`, `make frontend`, `make test`, `make lint`, `make up` |
-| 8.5 | Guía de despliegue | Variables de `.env`, persistencia (`Data/chroma` y volumen de Redis), renovación de certificados TLS, respaldo del índice y verificación de que `:8000`/`:50051`/`:6379` no están publicados al host |
+### Fase 8 — Contenerización y documentación (solución completa) — ✅ COMPLETADA (2026-09-17)
 
-**Criterio de aceptación F8**: `docker compose up --build` levanta la solución
-completa (frontend en HTTPS + API + gRPC + Redis) y el chat es consultable
-desde el host; `docker compose down && docker compose up` conserva el índice;
-la suite `uv run pytest` y `uv run ruff check src scripts tests` siguen en
-verde.
+| # | Tarea | Estado / artefacto |
+|---|---|---|
+| 8.1 | `Dockerfile` backend | ✅ `docker/Dockerfile`: multi-stage sobre `python:3.14-slim` (ARG `PYTHON_VERSION`, alineado con `.python-version`); `uv` copiado de la imagen oficial (`ghcr.io/astral-sh/uv:0.12.2`, nada de `pip`); capa de dependencias (`uv sync --frozen --no-dev --no-install-project`) separada de la del código (`uv sync --frozen --no-dev`); runtime con `libgomp1` (OpenMP de torch/onnxruntime), `ca-certificates`, usuario **sin privilegios** `app` (uid/gid del host vía `ARG APP_UID/APP_GID`) y `HEALTHCHECK` sobre `/health`. El índice **no se construye en el build**: `./Data` (índice + corpus + markdown) se monta desde el host y el modelo E5 se cachea en el volumen `models_cache` (`HF_HOME=/models`). Se fija `PYTHONPATH=/app/src` porque `core/config.py` deriva `PROJECT_ROOT` de `parents[3]`: importado desde `site-packages` apuntaría a `.venv/lib` |
+| 8.2 | `Dockerfile` frontend | ✅ `docker/Dockerfile.frontend`: venv propio con `uv venv` + `uv pip install "streamlit==1.64.0" "httpx==0.28.1"` (versiones del `uv.lock`, sin torch/chromadb/sentence-transformers), usuario `app`, `HEALTHCHECK` sobre `/_stcore/health`, arranque `streamlit run frontend/app.py --server.headless=true` (con `WORKDIR /app`, el paquete se copia como `/app/frontend/`) |
+| 8.3 | `docker-compose.yml` | ✅ servicios `proxy` (Caddy, **único** con puertos publicados 80/443), `frontend` (:8501 `expose`), `api` (:8000 REST + :50051 gRPC `expose`), `redis` (:6379 `expose`); `env_file: .env` con `required: false`; `healthcheck` en los 4 servicios y `depends_on: condition: service_healthy` (api→redis, frontend→api, proxy→frontend); red `internal`; volúmenes `redis_data`, `models_cache`, `caddy_data`, `caddy_config` + bind `./Data:/app/Data`. El Redis real sustituye al `fakeredis` de desarrollo apuntando `UAO_RAG__REDIS_URL` a `redis://redis:6379/0` (solo configuración: `cache.py` no cambia) |
+| 8.4 | README técnico + `Makefile` | ✅ `README.md` (arquitectura, requisitos, puesta en marcha, contratos REST/gRPC, estructura, pruebas, operación, seguridad) y `Makefile` reescrito autodocumentado (`make help` con secciones vía `##@`/`##`): entorno y calidad (`install`, `env-init`, `lint`, `format`, `check`, `test[-fast|-slow]`, `proto`), pipeline (`parse*`, `ingest*`), desarrollo (`api`, `grpc`, `frontend`, `ask-cli`, `smoke`), Docker (`config`, `build`, `up`, `down`, `restart`, `ps`, `logs*`, `shell`, `redis-cli`, `models-prefetch`, `health`, `ask`, `urls`, `grpc-url`), operación (`ingest-docker`, `grpc-status`, `cache-flush`, `cache-stats`) y respaldos/limpieza (`index-backup`, `index-restore`, `clean`, `clean-volumes`, `clean-images`, `disk`), conservando los alias previos (`docker-up`, `docker-down`, `redis-test`…) |
+| 8.5 | Guía de despliegue | ✅ `docs/guia-despliegue.md` (13 secciones): arquitectura desplegada, requisitos, preparación, variables (app y compose), despliegue paso a paso con verificación, persistencia y **respaldos** (índice, certificados con advertencia sobre claves privadas, caché), **TLS** (CA interna de Caddy para local y ACME con renovación automática para dominio real), operación (actualizar, reindexar, invalidar caché, cron), **GPU opcional**, seguridad/privacidad (verificación de que `:8000`/`:50051`/`:6379`/`:8501` no se publican), solución de problemas (Docker y aplicación) y checklist de despliegue |
+
+**Criterio de aceptación F8**:
+- `uv run pytest`: ✅ **95/95** (80 previos + 15 nuevos de `tests/test_deployment.py`).
+- `uv run ruff check src scripts tests` y `ruff format --check`: ✅ en verde.
+- `docker compose config` (`make config`): ✅ válido; la interpolación confirma que
+  **solo** `proxy` publica 80/443 y que api/gRPC/redis no salen del host.
+- `docker compose up --build`: ⏳ **pendiente de ejecución por el usuario** — el
+  socket de Docker del entorno de esta sesión no era accesible (el usuario no
+  pertenece al grupo `docker` y `sudo` pide contraseña), así que el *build* no
+  se pudo correr aquí. La configuración se validó de forma estática (compose,
+  Dockerfiles, Caddyfile y `.dockerignore`) y con pruebas automatizadas; la
+  ejecución real se cierra con `make up` (guía §5) sin cambios pendientes.
+
+**Decisiones y notas F8 (2026-09-17)**:
+
+1. **Proxy: Caddy en vez de nginx** (el plan §7.7 admitía `Caddyfile` o
+   `nginx.conf`). Motivos: TLS **automático** (`tls {$TLS_DIRECTIVE:internal}`
+   para la CA local, o el correo de ACME con renovación automática), soporte de
+   *websockets* de Streamlit sin configuración extra y **cero certificados en el
+   repositorio** (el intento previo versionaba `server.crt`). Se conserva la
+   redirección `:80`→`:443` y se añaden cabeceras de seguridad (HSTS,
+   `nosniff`, `X-Frame-Options`, `Referrer-Policy`).
+2. **Rutas del proxy**: `/` → Streamlit, `/api/*` → REST (`handle_path` elimina
+   el prefijo) y `/healthz` → 200 del proxy. La API arranca con `--root-path
+   /api` para que la documentación OpenAPI funcione tras el prefijo. El
+   healthcheck del contenedor usa un sitio interno `:8080` sin TLS, para evitar
+   SNI y redirecciones.
+3. **Índice por bind mount** (`./Data:/app/Data`) en lugar de copiarlo a la
+   imagen: reutiliza el índice pre-construido, cumple «`down && up` conserva el
+   índice» y permite reindexar dentro del contenedor (`make ingest-docker`). La
+   guía documenta la variante con volumen nombrado (§6.4).
+4. **Usuario sin privilegios con uid/gid del host**: evita los problemas de
+   permisos del bind mount; el `Makefile` exporta `APP_UID`/`APP_GID`
+   (`id -u`/`id -g`) y el compose los pasa como `build.args`.
+5. **`make up` = build + healthchecks + precarga del modelo**: `docker compose
+   up -d --build --wait` seguido de `make models-prefetch` (descarga el E5 al
+   volumen `models_cache`, ~1,2 GB) para que la primera pregunta del usuario no
+   pague la descarga ni el *timeout* de 30 s del cliente HTTP del frontend.
+6. **Pruebas de despliegue** (`tests/test_deployment.py`, 15 tests, sin Docker
+   ni red): servicios y red interna, ausencia de puertos internos publicados,
+   healthchecks y dependencias, bind mount del índice + caché del modelo,
+   conexiones internas (`redis://redis:6379/0`, `http://api:8000`), `uv sync
+   --frozen`/`PYTHONPATH`/usuario sin privilegios en los Dockerfiles,
+   `.dockerignore` (`.env`, `.venv`, `Data/chroma`), Caddyfile (TLS, rutas,
+   healthcheck), `.env.example`, targets del `Makefile`, secciones de la guía,
+   **ausencia de claves reales** (`csk-…`/`llx-…`) en los archivos versionados
+   y `.env` ignorado por git y por el contexto de build. Añade `pyyaml` y
+   `fakeredis` como dependencias de desarrollo (`uv add --dev`).
+7. **Tamaño de imagen (riesgo asumido)**: `uv.lock` fija `torch` con wheels
+   CUDA de PyPI (~4-5 GB de imagen) y `uv sync` no permite elegir el backend de
+   torch (`--torch-backend` existe solo en la interfaz `uv pip`); el contenedor
+   corre en CPU igualmente (`resolve_embedding_device` detecta que no hay GPU).
+   La variante CPU-only exigiría añadir un índice de PyTorch al
+   `pyproject.toml` y re-lockear (optimización futura, ver §6).
+8. **Nota de operación**: no ejecutar la app local y el contenedor a la vez
+   sobre el mismo `Data/chroma` (Chroma/SQLite bloquea la base); documentado en
+   la guía junto con el resto de la solución de problemas.
 
 ---
 
@@ -531,7 +637,8 @@ verde.
 - **Frontend (F7)**: funciones puras del cliente Streamlit (llamada a
   `POST /ask`, formateo de fuentes, mapeo de errores 422/503/500/conexión)
   con `httpx` mockeado; el render se valida con humo manual
-  (`uv run streamlit run frontend/app.py` contra la API local).
+  (`uv run streamlit run src/asistente_agentico_uao/frontend/app.py` contra la
+  API local).
 - **Integración** (marcadas `slow`): embeddings reales + Chroma efímero;
   1 llamada real a Cerebras (opcional, tras `pytest -m "not slow"`).
 - **Evaluación** (F6): banco de preguntas + métricas de recuperación y
@@ -558,6 +665,9 @@ verde.
 | Latencia percibida y pantallas congeladas en la UI | Doc base §1.5 (tiempo de procesamiento) | `st.spinner` con estado, timeout explícito del cliente HTTP, caché semántica para preguntas repetidas (latencia del LLM medida: 0.3-0.6 s) |
 | Exposición pública del servicio y datos personales | Doc base §1.4 (proxy TLS + Ley 1581) | Proxy inverso con TLS automático como único puerto público; API/gRPC/Redis en red interna; el chat no pide datos personales y la caché guarda solo pregunta/respuesta |
 | Preguntas reales con jerga/typos distintas del banco de pruebas | Doc base §1.5 (cuarta limitación) | Preguntas de ejemplo en la UI, banco F6 con jerga/typos y caché semántica que absorbe paráfrasis de la misma pregunta |
+| Imagen del backend pesada (~4-5 GB) por las wheels CUDA de `torch` fijadas en `uv.lock` | Verificado al preparar F8: `uv sync` no permite elegir backend de torch (`--torch-backend` solo existe en `uv pip`) | El contenedor funciona en CPU (`resolve_embedding_device` detecta que no hay GPU) y el modelo se cachea en el volumen `models_cache`; multi-stage evita la caché de uv en la imagen final; `make disk` para vigilar el consumo. Optimización futura: índice PyTorch CPU en `pyproject.toml` + re-lock |
+| Regresión de configuración de despliegue (puerto interno publicado, secreto versionado, servicio sin healthcheck) | Riesgo detectado al sistematizar F8 | `tests/test_deployment.py` (15 pruebas estáticas) + `make config`; validan servicios, red interna, ausencia de `ports` en api/frontend/redis, healthchecks, `.dockerignore` y ausencia de claves reales en archivos versionados |
+| Discrepancia entre el entorno local y el contenedor en las rutas de datos | `core/config.py` deriva `PROJECT_ROOT` de `parents[3]`; importado desde `site-packages` apuntaría a `.venv/lib` | `PYTHONPATH=/app/src` en la imagen + `UAO_RAG__DOCS_DIR`/`MARKDOWN_DIR`/`CHROMA_DIR` explícitas en el compose, con bind `./Data:/app/Data` |
 
 ---
 
@@ -573,7 +683,7 @@ verde.
 | F5 APIs (REST consulta + gRPC ingesta) | 3 | ✅ hecho | F4 |
 | F6 Evaluación+ajustes | 3 | 1-2 sesiones | F5 |
 | **F7 Frontend Streamlit + caché Redis + proxy TLS** | **5** | **1-2 sesiones** | **F5 (puede solaparse con F6)** |
-| F8 Docker+docs (backend+frontend+Redis+proxy) | 5 | 1 sesión | F7 |
+| F8 Docker+docs (backend+frontend+Redis+proxy) | 5 | ✅ hecho (2026-09-17) | F7 |
 | **Total** | **36 SP** | **~9-12 sesiones** | |
 
 La **ruta crítica** es F1 → F2 → F3 → F4: cualquier retrabajo en la
@@ -581,7 +691,8 @@ validación manual del texto limpio (F1.9) desplaza todo lo demás, por eso
 es el checkpoint bloqueante actual. F7 solo depende de F5 (ya completada), así
 que puede ejecutarse en paralelo con F6; F8 cierra el proyecto y depende de F7.
 La carga total (36 SP) cuadra con el Kanban del documento base (38 SP, tareas
-008 «interfaz en Streamlit» y 010 «Docker + Redis + Proxy»).
+008 «interfaz en Streamlit» y 010 «Docker + Redis + Proxy»). Con F7 y F8
+completadas, **queda pendiente F6** (pruebas, evaluación y ajuste fino).
 
 ---
 
@@ -598,12 +709,28 @@ no-información sin alucinar (la defensa es el prompt, no el umbral).
 
 **Siguiente: Fase 6** — Pruebas, evaluación y ajuste fino (banco de ~30
 preguntas con jerga/typos, recall@5 y MRR, fidelidad/exactitud de citas y
-recalibración de `min_similarity`). La Fase 5 de APIs ya está implementada y
-verificada: REST de consulta en `api/` + gRPC de ingesta en `grpc_impl/`.
+recalibración de `min_similarity`). Las Fases 5, 7 y 8 ya están implementadas y
+verificadas: REST de consulta en `api/`, gRPC de ingesta en `grpc_impl/`, chat
+Streamlit + caché semántica en `rag/cache.py` y la solución completa
+contenerizada (`docker/Dockerfile*`, `docker-compose.yml`, `docker/Caddyfile`)
+con su guía de despliegue (`docs/guia-despliegue.md`).
 
-**Después — Fase 7 (frontend)**: `frontend/app.py` en Streamlit consumiendo
-`POST /ask`, caché semántica en Redis (`cache.py`) y proxy inverso TLS
-(`deploy/`); puede arrancar en paralelo con F6 porque solo depende de la API
-de la Fase 5. La **Fase 8** cierra con la contenerización de la solución
-completa (backend + frontend + Redis + proxy) y la documentación de
-despliegue.
+**Fase 8 ✅ COMPLETADA (2026-09-17)**: contenerización end-to-end y
+documentación. `make up` levanta los 4 servicios (proxy TLS con Caddy,
+frontend Streamlit, API REST + gRPC y Redis) publicando solo 80/443, con
+healthchecks encadenados, precarga del modelo de embeddings e índice por bind
+mount (persistente entre `down`/`up`). Verificación disponible en esta sesión:
+`docker compose config` válido, `uv run pytest` 95/95 y `ruff` en verde; el
+`docker compose up --build` real queda por ejecutar por el usuario (el socket de
+Docker no era accesible desde el entorno de la sesión). El siguiente paso
+recomendado es `make up` + §5 de la guía, y **después F6** para cerrar la
+calidad del RAG (métricas y recalibración del umbral).
+
+**Ajustes estructurales y documentación (2026-09-17, misma rama)**: además de
+la contenerización, esta rama movió la documentación a `docs/`
+(`plan-trabajo-tecnico.md` y `asistente-uao-rag.md` viven ahora junto a
+`guia-despliegue.md`) y consolidó el paquete en capas (`core/`, `rag/`,
+`ingestion/`, `api/`, `grpc_impl/`, `frontend/`), sin dejar alias de
+compatibilidad a propósito: una ruta vieja falla de inmediato en lugar de
+romper en silencio en runtime. En F8 se actualizó el README técnico y se
+añadió la guía de despliegue.
