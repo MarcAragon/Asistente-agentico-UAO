@@ -49,3 +49,6 @@ extend-exclude = ["src/asistente_agentico_uao/grpc_impl/stubs"]
 markers = [
     "slow: pruebas de integración con modelo real de embeddings y Chroma (descarga/GPU)",
 ]
+filterwarnings = [
+    "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated:DeprecationWarning",
+]

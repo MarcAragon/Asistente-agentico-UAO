@@ -81,3 +81,65 @@ def test_units_splits_large_table_and_repeats_header():
         assert is_table is True
         assert "<thead>" in table
         assert "<tr><th>Nombre</th><th>Valor</th></tr>" in table
+
+
+def test_split_sections_returns_empty_for_empty_markdown():
+    """Verifica que un markdown vacío no genere secciones."""
+    result = split_sections("")
+
+    assert result == []
+
+
+def test_split_sections_keeps_plain_text_without_headers():
+    """Verifica que un texto sin encabezados se conserve como una sección."""
+    md = "Contenido simple del documento."
+
+    result = split_sections(md)
+
+    assert result == [("", "Contenido simple del documento.")]
+
+
+def test_units_splits_long_text_into_multiple_units():
+    """Verifica que textos largos sean divididos en unidades."""
+    md = (
+        "Este es un texto muy largo con muchas palabras "
+        "que debe dividirse correctamente en varias unidades."
+    )
+
+    result = _units(md, lambda text: len(text.split()), max_tokens=5)
+
+    assert len(result) > 1
+    assert all(is_table is False for _, is_table in result)
+
+
+def test_units_keeps_short_text_as_single_unit():
+    """Verifica que textos pequeños permanezcan como una unidad."""
+    md = "Texto corto."
+
+    result = _units(md, lambda text: len(text.split()), max_tokens=50)
+
+    assert len(result) == 1
+    assert result[0][0] == md
+    assert result[0][1] is False
+
+
+def test_units_handles_empty_text():
+    """Verifica el comportamiento con texto vacío."""
+    result = _units("", lambda text: len(text.split()), max_tokens=10)
+
+    assert result == []
+
+
+def test_units_identifies_table_content():
+    """Verifica que una tabla HTML sea identificada correctamente."""
+    md = """
+<table>
+<tr><td>Dato</td></tr>
+</table>
+"""
+
+    result = _units(md, lambda text: len(text.split()), max_tokens=50)
+
+    assert len(result) == 1
+    assert result[0][1] is True
+    assert "<table>" in result[0][0]
