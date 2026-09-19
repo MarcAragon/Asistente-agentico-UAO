@@ -4,7 +4,8 @@
 > Alcance de este plan: **backend + APIs (REST de consulta y gRPC de
 > ingesta) + frontend web (Streamlit) + caché semántica (Redis) +
 > contenerización (Docker)**. Documento base: `asistente-uao-rag.md`.
-> Fecha: 2026-09-08.
+> Fecha: 2026-09-08. Desde el 2026-09-17 este documento vive en `docs/`
+> (movido junto a `asistente-uao-rag.md` y `guia-despliegue.md`).
 > **Actualización 2026-09-09**: la extracción (Fase 1) migró de PyMuPDF+EasyOCR
 > local a **LlamaCloud Parse** (servicio agentic, salida markdown). Ver §0.4
 > (decisiones 7-8), Fase 1 y el registro de riesgos §6.
@@ -15,6 +16,15 @@
 > alcance del documento base (`asistente-uao-rag.md` §1.4 infraestructura,
 > §2.2 objetivo 4 —interfaz interactiva y robusta—, §2.3 matriz de alcance,
 > §4.4 stack y las tareas Kanban 008/010).
+> **Actualización 2026-09-17 (rama `feat--refactor+docker`)**: dos frentes.
+> (a) **Refactor de estructura** del paquete en capas: `core/` (config,
+> embeddings, vectorstore, llm) y `rag/` (retrieval, chain, cache, service)
+> + `ingestion/__init__.py` que faltaba — ver §2 y la nota del mismo día.
+> (b) **Fase 8 completada**: contenerización de la solución completa
+> (`docker/Dockerfile*`, `docker-compose.yml`, `docker/Caddyfile`,
+> `Makefile`), README técnico y guía de despliegue. Dependencias F7/F8
+> añadidas a la tabla §0.1, variables de despliegue (compose/Caddy)
+> documentadas en §3.1 y pruebas de despliegue registradas en §5.
 
 ---
 
@@ -34,7 +44,11 @@
 | `llama-cloud` (SDK LlamaCloud Parse) | 2.16.0 | ✅ Parseo PDF → markdown |
 | `fastapi` / `uvicorn[standard]` | 0.141.1 / 0.52.4 | ✅ Import OK |
 | `pytest` / `ruff` (dev) | 9.1.1 / 0.16.6 | ✅ |
-| `fakeredis` / `pyyaml` (dev) | >=2.38.0 / >=6.0.3 | ✅ fakeredis simula Redis en desarrollo y tests del caché (F7); `pyyaml` parsea `docker-compose.yml` en `tests/test_deployment.py` (F8) |
+| `fakeredis` / `pyyaml` (dev) | 2.38.0 / 6.0.3 | ✅ fakeredis simula Redis en desarrollo y tests del caché (F7); `pyyaml` parsea `docker-compose.yml` en `tests/test_deployment.py` (F8) |
+| `streamlit` (F7) | 1.64.0 | ✅ Chat web (`frontend/app.py`); el Dockerfile.frontend fija `==1.64.0` y `httpx==0.28.1` |
+| `httpx` (F7) | 0.28.1 | ✅ Cliente HTTP del frontend hacia `POST /ask` |
+| `redis` (F7) | 8.1.0 | ✅ Cliente del caché semántico (fakeredis en desarrollo, Redis real en compose) |
+| `grpcio` / `grpcio-tools` / `protobuf` (F5) | 1.83.1 / 1.83.1 / 7.36.1 | ✅ Control plane de ingesta y stubs generados (`scripts/gen_proto.py`) |
 
 > **Cambio 2026-09-09**: se retiraron del proyecto `pymupdf` y `easyocr`
 > (con sus transitivas: `torchvision`, etc.). El parseo de PDFs ya no es
@@ -189,8 +203,12 @@ Asistente-agentico-UAO/
 │   ├── Documentos_MD/           # *.md limpios (salida LlamaCloud Parse; entrada del RAG)
 │   └── chroma/                  # Persistencia ChromaDB (se crea en Fase 2; gitignored)
 ├── scripts/
-│   ├── llama_cloud_parsing.py   # CLI PDFs → LlamaCloud Parse → Data/Documentos_MD/*.md
-│   └── ingest.py                # FASE 2: CLI chunking+embeddings → Chroma
+│   ├── llama_cloud_parsing.py   # FASE 1: CLI PDFs → LlamaCloud Parse → Data/Documentos_MD/*.md
+│   ├── ingest.py                # FASE 2: CLI chunking+embeddings → Chroma
+│   ├── smoke_retrieval.py       # FASE 3: humo del retriever (banco de 10 preguntas + ad-hoc)
+│   ├── ask.py                   # FASE 4: CLI end-to-end de la cadena RAG (banco de 7 humos)
+│   ├── ingest_client.py         # FASE 5: cliente gRPC de humo (Ingest/PruneIndex/IndexStatus)
+│   └── gen_proto.py             # FASE 5: regenera los stubs gRPC desde el .proto
 ├── src/asistente_agentico_uao/
 │   ├── __init__.py              # entrypoint de consola (pyproject: asistente-agentico-uao)
 │   ├── core/                    # infraestructura y adaptadores externos (sin dominio RAG)
@@ -242,9 +260,12 @@ Asistente-agentico-UAO/
 > rutas nuevas, p. ej. `asistente_agentico_uao.core.config` y
 > `asistente_agentico_uao.rag.chain`; no se dejaron alias de
 > compatibilidad a propósito, para que una ruta vieja falle de inmediato.
-En F8, `docker/Dockerfile.frontend` añade `frontend/` al `sys.path`
-para que `app.py` siga importando `from client import preguntar_api`
-sin depender del paquete instalado.
+En F8, `docker/Dockerfile.frontend` copia el paquete a `/app/frontend/` y
+arranca `streamlit run frontend/app.py`: Streamlit ejecuta el script con su
+propio directorio en `sys.path`, así que `app.py` sigue importando
+`from client import preguntar_api` sin hacks de `PYTHONPATH` ni depender del
+paquete instalado (la imagen del frontend solo instala `streamlit` y
+`httpx`).
 
 ---
 
@@ -282,6 +303,17 @@ sin depender del paquete instalado.
 | `UAO_RAG__CACHE_TTL_SECONDS` | `86400` | Vigencia de cada entrada de caché (24 h) (F7) |
 | `UAO_RAG__API_BASE_URL` | `http://localhost:8000` | URL de la API que consume el frontend (solo frontend, F7) |
 | `UAO_RAG__FEEDBACK_ENABLED` | `0` | Panel «¿fue útil?» (nice-to-have §2.3); si está en `0` no se muestra (F7) |
+
+Variables de despliegue (F8, las consume el compose/Caddy; NO llevan el
+prefijo `UAO_RAG__` porque no son ajustes de `Settings`):
+
+| Variable | Default | Uso |
+|---|---|---|
+| `SITE_ADDRESS` | `localhost` | Dominio del proxy Caddy; con dominio real, ACME emite y renueva el certificado |
+| `TLS_DIRECTIVE` | `internal` | `internal` = CA propia de Caddy (demo/intranet) o correo de contacto para ACME |
+| `IMAGE_TAG` | `0.1.0` | Etiqueta de las imágenes construidas por el compose |
+| `APP_UID` / `APP_GID` | uid/gid del host | Exportados por el `Makefile` (`id -u`/`id -g`) y pasados como `build.args` para que el bind `./Data` sea escribible sin privilegios |
+| `HF_HOME` | `/models` (en contenedor) | Caché del modelo de embeddings en el volumen `models_cache` (fijado también en el Dockerfile) |
 
 ### 3.2 Esquema de la colección ChromaDB
 
@@ -641,6 +673,13 @@ de la 010.
   API local).
 - **Integración** (marcadas `slow`): embeddings reales + Chroma efímero;
   1 llamada real a Cerebras (opcional, tras `pytest -m "not slow"`).
+- **Despliegue (F8)**: `tests/test_deployment.py` (15 pruebas estáticas, sin
+  Docker ni red) que parsean `docker-compose.yml` con `pyyaml` e inspeccionan
+  Dockerfiles, Caddyfile, `.dockerignore`, `.env.example` y `Makefile`:
+  servicios y red interna, que api/frontend/redis no publiquen puertos,
+  healthchecks y `depends_on: service_healthy`, bind `./Data` +
+  `models_cache`, `uv sync --frozen` / `PYTHONPATH` / usuario sin
+  privilegios, rutas TLS del proxy y ausencia de claves reales versionadas.
 - **Evaluación** (F6): banco de preguntas + métricas de recuperación y
   fidelidad; se ejecuta manualmente, no en CI.
 - Comando base: `uv run pytest -m "not slow"` para el ciclo rápido.
