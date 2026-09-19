@@ -1,309 +1,425 @@
-# Asistente agéntico RAG — Asistente RAG UAO
+# Asistente agéntico RAG --- Asistente RAG UAO
 
-Asistente conversacional que responde preguntas sobre la **normativa
-institucional de la Universidad Autónoma de Occidente** (reglamentos,
-resoluciones, calendarios, políticas) usando **RAG** (retrieval-augmented
-generation): recupera los fragmentos pertinentes de los documentos oficiales
-y sintetiza una respuesta **citando siempre la fuente** (documento + sección).
-Cuando la normativa indexada no responde la pregunta, el asistente responde
-explícitamente que no tiene información suficiente: **nunca inventa**.
+![Python](https://img.shields.io/badge/Python-3.14-blue)
+![uv](https://img.shields.io/badge/uv-package%20manager-purple)
+![RAG](https://img.shields.io/badge/Enfoque-RAG-orange)
+![ChromaDB](https://img.shields.io/badge/Base%20vectorial-ChromaDB-blue)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688)
+![Docker](https://img.shields.io/badge/Docker-enabled-blue)
+![pytest](https://img.shields.io/badge/Pruebas-pytest-green)
 
-Proyecto del curso de *Sistemas Agénticos* (UAO). El documento base del
-alcance es [`asistente-uao-rag.md`](asistente-uao-rag.md) y el plan técnico
-por fases es [`plan-trabajo-tecnico.md`](plan-trabajo-tecnico.md).
+## Descripción
+
+El Asistente Agéntico UAO es un sistema conversacional basado en **RAG
+(Retrieval-Augmented Generation)** que permite consultar información
+institucional de la Universidad Autónoma de Occidente.
+
+El sistema procesa documentos oficiales como reglamentos, resoluciones,
+calendarios y políticas institucionales. A partir de estos documentos
+genera una base de conocimiento que permite recuperar información
+relevante y generar respuestas fundamentadas indicando las fuentes
+utilizadas.
+
+Cuando la información disponible no permite responder una consulta, el
+sistema devuelve una respuesta indicando que no existe información
+suficiente, evitando generar contenido no soportado.
+
+------------------------------------------------------------------------
+
+# Arquitectura del sistema
+
+| Componente | Tecnología | Función |
+|---|---|---|
+| Frontend | Streamlit | Interfaz conversacional para el usuario |
+| API | FastAPI | Gestión de consultas y respuestas |
+| Control | gRPC | Administración de procesos internos |
+| Base vectorial | ChromaDB | Almacenamiento y recuperación semántica |
+| Embeddings | E5 Multilingual | Representación vectorial del texto |
+| Modelo generador | Cerebras + Qwen | Generación de respuestas |
+| Caché | Redis | Optimización de consultas frecuentes |
 
 ---
 
-## 1. Arquitectura
+El sistema utiliza dos planos principales:
+
+| Plano | Puerto | Función |
+|---|---|---|
+| Datos | `8000` | Comunicación mediante API REST para consultas del usuario |
+| Control | `50051` | Comunicación mediante gRPC para administración del índice |
+
+------------------------------------------------------------------------
+
+# Objetivo
+
+Desarrollar un asistente inteligente capaz de responder preguntas
+relacionadas con documentación institucional mediante recuperación
+semántica y generación de texto.
+
+La arquitectura busca ser modular, reproducible y escalable, separando
+procesamiento documental, recuperación de información, generación de
+respuestas y servicios de interacción.
+
+------------------------------------------------------------------------
+
+# Funcionalidades
+
+El proyecto incluye:
+
+-   Conversión de documentos PDF mediante LlamaCloud Parse.
+-   Procesamiento de documentos Markdown.
+-   División del contenido mediante técnicas de chunking.
+-   Generación de embeddings con modelos E5.
+-   Almacenamiento persistente con ChromaDB.
+-   Recuperación semántica de fragmentos relevantes.
+-   Generación de respuestas con Qwen mediante Cerebras.
+-   Sistema de caché semántica mediante Redis.
+-   Consulta mediante interfaz Streamlit.
+-   API REST con FastAPI.
+-   Administración del índice mediante gRPC.
+-   Pruebas automatizadas con pytest.
+
+------------------------------------------------------------------------
+
+# Flujo de datos
+
+El siguiente diagrama muestra cómo se procesan los documentos de la UAO y cómo se utiliza su información para responder las preguntas del usuario.
+
+![Flujo de datos del asistente UAO](assets/flujo_datos_uaoNuevo.png)
+
+------------------------------------------------------------------------
+
+# Requisitos
+# Requisitos
+
+El proyecto requiere diferentes tecnologías para su ejecución, desarrollo y despliegue. Cada herramienta cumple una función específica dentro de la arquitectura del asistente.
+
+| Tecnología | Uso dentro del proyecto |
+|------------|------------------------|
+| Python 3.14 | Lenguaje principal utilizado para el desarrollo del sistema. |
+| uv | Gestión del entorno virtual y administración de dependencias. |
+| Docker Compose | Despliegue y administración de los servicios mediante contenedores. |
+| ChromaDB | Base de datos vectorial utilizada para almacenar embeddings y realizar búsquedas semánticas. |
+| FastAPI | Servicio REST encargado de recibir consultas y entregar respuestas. |
+| Streamlit | Interfaz gráfica conversacional para la interacción con el usuario. |
+| gRPC | Comunicación interna para la administración del índice y procesos de ingesta. |
+| Redis | Sistema de caché semántica para optimizar consultas repetidas. |
+| pytest | Framework utilizado para la ejecución de pruebas automatizadas. |
+
+Variables necesarias:
+
+``` text
+CEREBRAS_API_KEY
+LLAMA_CLOUD_API_KEY
+```
+
+Las dependencias se encuentran definidas en:
+
+``` text
+pyproject.toml
+uv.lock
+```
+
+------------------------------------------------------------------------
+
+# Instalación local
+
+El flujo local permite trabajar sobre cada etapa del sistema RAG:
+
+- Preparación de documentos.
+- Generación del índice vectorial.
+- Ejecución del backend.
+- Ejecución de la interfaz gráfica.
+- Validación mediante pruebas automatizadas.
+
+
+## Crear entorno
+Desde la carpeta raíz del proyecto se instala el entorno virtual y todas las dependencias definidas en `pyproject.toml`.
+
+``` bash
+uv sync
+```
+
+## Configurar variables
+
+Crear archivo `.env`:
+
+``` bash
+cp .env.example .env
+```
+
+Completar las claves necesarias.
+
+------------------------------------------------------------------------
+
+# Ejecución con Makefile
+
+El proyecto incluye un archivo `Makefile` que simplifica la ejecución de tareas frecuentes y evita ejecutar manualmente múltiples comandos.
+
+Los comandos principales son:
+
+| Comando | Descripción |
+|---|---|
+| `make install` | Instala las dependencias del proyecto mediante `uv`. |
+| `make test` | Ejecuta las pruebas automatizadas del sistema. |
+| `make api` | Inicia el servicio REST desarrollado con FastAPI. |
+| `make frontend` | Inicia la interfaz gráfica desarrollada con Streamlit. |
+
+
+Para transformar los documentos PDF en archivos Markdown:
+
+``` bash
+make parse
+```
+Después de tener los documentos procesados, se genera la base de conocimiento:
+
+```bash
+make ingest
+```
+
+------------------------------------------------------------------------
+
+## Ejecución del backend
+
+Para iniciar la API REST:
+
+```bash
+make api
+```
+La API estará disponible en:
 
 ```text
-                        ┌──────────────────────────────────────────────┐
- Estudiante ──────────►│   FRONTEND WEB (Streamlit)                    │
-   (navegador)          │   chat · respuesta + fuentes citadas         │
-                        │   └─ HTTP/JSON (solo REST /ask, nunca gRPC)  │
-                        └───────────────────┬──────────────────────────┘
-                                            │ proxy inverso TLS (:443)
-                        ┌───────────────────▼──────────────────────────┐
-                        │  CACHÉ SEMÁNTICA (Redis)                     │
-                        │   hit por similitud de la pregunta → TTL     │
-                        └───────────────────┬──────────────────────────┘
-                                            ▼
-                        ┌──────────────────────────────────────────────┐
-                        │              BACKEND                         │
- Data/Documentos/*.pdf►│  INGESTA (offline, CLI o gRPC)               │
-   20 PDFs oficiales    │  scripts/llama_cloud_parsing.py              │
-                        │   └─ LlamaCloud Parse (agentic, API nube)    │
-                        │      └─ Data/Documentos_MD/*.md (limpio)     │
-                        │         └─ ingestion/chunk.py                │
-                        │  core/embeddings.py (E5 multilingüe, CPU/GPU)│
-                        │      ▼                                       │
-                        │  core/vectorstore.py ─► ChromaDB persistente │
-                        │      Data/chroma/ (metadata: doc, sección)   │
-                        │      ▲                                       │
-                        │  gRPC :50051 (control plane)                 │
-                        │   Ingest(stream) · PruneIndex · IndexStatus  │
-                        │                                              │
- Frontend ───────────►  │  REST :8000 (data plane)                     │
-   POST /ask            │  rag/retrieval.py ─► top-k + umbral          │
-                        │      ▼                                       │
-                        │  rag/cache.py ─► Redis (hit por similitud)   │
-                        │      ▼                                       │
-                        │  rag/chain.py (LCEL): prompt ─► llm.py ─► …  │
-                        │      llm.py = ChatCerebras(qwen-3.8-27b)     │
-                        │      ▼                                       │
- Respuesta ◄──────────  │  respuesta + fuentes[] (doc, sección, texto) │
-                        └──────────────────────────────────────────────┘
+http://localhost:8000
 ```
 
-**Dos planos de servicio, sin duplicar funciones:**
+La documentación interactiva de FastAPI se encuentra en:
 
-| Plano | Protocolo | Puerto | Rol |
-|---|---|---|---|
-| Datos (consulta) | REST/HTTP | `:8000` | `POST /ask`, `GET /health`, `GET /documents`. Solo **lee** el índice y llama al LLM. Es lo único que consume el chat. |
-| Control (ingesta) | gRPC | `:50051` | `Ingest` (progreso en streaming), `PruneIndex`, `IndexStatus`. Máquina a máquina; **nunca** se expone al navegador. |
+```text
+http://localhost:8000/docs
+```
 
-**Observabilidad (Fase 9):** un *tracking server* de **MLflow** (`:5000`, red
-interna) recibe las trazas de las llamadas al LLM. La API las emite con
-`mlflow.openai.autolog()` —activo **solo** si el entorno define
-`MLFLOW_TRACKING_URI` (lo hace el compose); la instrumentación funciona porque
-`ChatCerebras` hereda de `BaseChatOpenAI` y construye clientes `openai.OpenAI`.
-El dashboard se consume por el proxy en **https://mlflow.<SITE_ADDRESS>** y no
-publica ningún puerto al host.
+--------------------------------------------------------------------------
 
-**Capas del paquete** (`src/asistente_agentico_uao/`) con regla de
-dependencias `core ← rag/ingestion ← api/grpc_impl/frontend`:
+## Ejecución del frontend
 
-| Capa | Módulos | Responsabilidad |
-|---|---|---|
-| `core/` | `config.py`, `embeddings.py`, `vectorstore.py`, `llm.py` | Infraestructura y adaptadores externos (settings, E5, Chroma, Cerebras). |
-| `rag/` | `retrieval.py`, `chain.py`, `cache.py`, `service.py` | Dominio RAG: recuperación, cadena LCEL, caché semántica, estado compartido. |
-| `ingestion/` | `chunk.py`, `pipeline.py` | Chunking por encabezados y pipeline de indexación (compartido por CLI y gRPC). |
-| `api/`, `grpc_impl/`, `frontend/` | `main.py`, `servicer.py`, `app.py`… | Capa de entrada (REST, gRPC, UI Streamlit). |
-| `scripts/` | `llama_cloud_parsing.py`, `ingest.py`, `ask.py`… | CLIs de operación y humo. |
+En una terminal diferente se ejecuta:
+
+```bash
+make frontend
+```
+--------------------------------------------------------------------------
+
+# Ejecución con Docker
+
+La ejecución mediante Docker permite desplegar el asistente en un ambiente controlado y reproducible, evitando diferencias entre configuraciones de diferentes equipos.
+
+La arquitectura mediante Docker Compose separa los servicios principales del sistema:
+
+```text
+Docker Compose
+
+├── Backend API
+│       FastAPI + Sistema RAG
+│
+├── Frontend
+│       Streamlit
+│
+├── Redis
+│       Caché semántica
+│
+└── Proxy
+        Caddy
+```
+------------------------------------------------------------
+
+## Construcción y despliegue
+
+Para construir las imágenes y levantar todos los servicios:
+``` bash
+make up
+```
+
+``` bash
+make down
+```
+
+## Verificar servicios activos
+
+Para revisar el estado de los contenedores:
+
+```bash
+make ps
+```
+
+También se pueden consultar los registros del sistema:
+
+```bash
+make logs
+```
+
+## Acceso al sistema
+
+Después de iniciar los servicios:
+
+### Interfaz gráfica
+
+```text
+https://localhost/
+```
+
+### API REST
+
+```text
+https://localhost/api/
+```
+
+### Documentación FastAPI
+
+```text
+https://localhost/api/docs
+```
 
 ---
 
-## 2. Requisitos
+## Detener el sistema
 
-| Herramienta | Versión | Uso |
-|---|---|---|
-| [`uv`](https://docs.astral.sh/uv/) | ≥ 0.12 | Gestión del entorno y de dependencias (**nunca `pip`/`uv pip`**). |
-| Python | 3.14 (fijado en `.python-version`) | El entorno lo instala/gestiona `uv`. |
-| Docker Engine + Compose v2+ | ≥ 24 / ≥ 2.20 (`--wait`) | Despliegue de la Fase 8 (`docker-compose.yml`). |
-| GPU NVIDIA/AMD | opcional | Acelera los *embeddings* E5; sin GPU se usa CPU automáticamente. |
-
-Claves de API necesarias en `.env` (copia de `.env.example`, **gitignored**):
-
-- `CEREBRAS_API_KEY` — generación de la respuesta (`qwen-3.8-27b`). Sin ella la
-  API arranca pero `/ask` responde `503`. Se admiten claves extra separadas por
-  coma en `CEREBRAS_API_KEYS` con rotación automática ante cuota agotada.
-- `LLAMA_CLOUD_API_KEY` — solo para parsear PDFs nuevos (Fase 1).
----
-
-## 3. Puesta en marcha
-
-### 3.1 Desarrollo local (con `uv`)
+Para apagar los servicios:
 
 ```bash
-make env-init        # crea .env desde .env.example (completa las API keys)
-make install         # uv sync: replica el entorno desde uv.lock
-make test            # suite completa de pytest
-make api             # API REST en http://localhost:8000 (gRPC embebido :50051)
-make frontend        # chat Streamlit en http://localhost:8501 (otra terminal)
+make down
 ```
 
-Flujo de datos (una sola vez, cuando cambie el corpus):
+------------------------------------------------------------------------
 
-```bash
-make parse           # PDFs → LlamaCloud Parse → Data/Documentos_MD/*.md
-make ingest          # markdown → chunks → embeddings E5 → Data/chroma
-```
+# API REST
 
-### 3.2 Solución completa con Docker (recomendado para desplegar)
+Endpoints principales:
 
-```bash
-make env-init        # .env con las claves (se inyecta por env_file, no se copia a la imagen)
-make up              # build + healthchecks + precarga del modelo de embeddings
-make urls            # URLs de acceso
-make down            # apaga (conserva índice, caché, certificados y modelos)
-```
+  Endpoint           Función
+  ------------------ --------------------------------
+  `POST /ask`        Realiza preguntas al asistente
+  `GET /health`      Estado del sistema
+  `GET /documents`   Consulta documentos indexados
 
-- Chat: **https**://localhost/ · API: https://localhost/api/health ·
-  documentación OpenAPI: https://localhost/api/docs · dashboard de trazas del
-  LLM: https://mlflow.localhost/
-- Únicos puertos publicados al host: **80** (redirección HTTP→HTTPS y ACME) y
-  **443** (TLS). La API, gRPC, Streamlit, Redis y **MLflow** quedan **solo** en
-  la red interna del compose.
-- Certificado TLS: por defecto Caddy usa su **CA interna** (válido para
-  `localhost`/intranet, el navegador avisa una vez). Para un dominio real,
-  define `SITE_ADDRESS` y `TLS_DIRECTIVE` en `.env` y Caddy emite y renueva el
-  certificado por ACME automáticamente.
+Ejemplo:
 
-Detalles, verificación paso a paso, respaldos y solución de problemas:
-**[`docs/guia-despliegue.md`](docs/guia-despliegue.md)**.
-
-### 3.3 Atajos del `Makefile`
-
-`make` (o `make help`) lista todos los targets agrupados:
-
-| Grupo | Targets |
-|---|---|
-| Entorno y calidad | `install`, `sync`, `env-init`, `lint`, `format`, `check`, `test`, `test-fast`, `test-slow`, `proto` |
-| Pipeline de datos | `parse`, `parse-redo`, `parse-file FILE=…`, `ingest`, `ingest-rebuild`, `ingest-prune` |
-| Desarrollo local | `api`, `grpc`, `frontend`, `ask-cli`, `smoke` |
-| Docker | `config`, `build`, `up`, `down`, `restart`, `ps`, `logs[-api|-frontend|-proxy|-redis|-mlflow]`, `shell`, `redis-cli`, `models-prefetch`, `health`, `ask`, `urls` |
-| Operación | `ingest-docker`, `ingest-rebuild-docker`, `grpc-status`, `cache-flush`, `cache-stats` |
-| Respaldos y limpieza | `index-backup`, `index-restore FILE=…`, `clean`, `clean-volumes`, `clean-images`, `disk` |
-
----
-
-## 4. Contratos
-
-### 4.1 API REST (data plane, `:8000`)
-
-`POST /ask`
-
-```json
-// Request
-{ "question": "¿Cuál es el plazo para cancelar una asignatura?" }
-
-// Response 200
+``` json
 {
-  "answer": "Según el Reglamento ... (Art. 21) ...",
-  "sources": [
-    { "doc_name": "Reso-CS-No.666-modifica-reglamento-aca-pre.pdf",
-      "section": "Artículo 21", "score": 0.71,
-      "excerpt": "El estudiante podrá cancelar asignaturas hasta..." }
-  ],
-  "model": "qwen-3.8-27b",
-  "used_fallback": false
+ "question":"¿Cuál es el reglamento académico?"
 }
 ```
 
-| Endpoint | Descripción | Códigos |
-|---|---|---|
-| `POST /ask` | Pregunta (1..500 caracteres) → respuesta + fuentes verificables. | `200`, `422` (validación), `503` (sin `CEREBRAS_API_KEY`), `500` |
-| `GET /health` | Estado, chunks indexados, `device` y contadores de caché (hits/misses/ratio). | `200` |
-| `GET /documents` | Documentos indexados con su número de chunks (trazabilidad). | `200` |
+------------------------------------------------------------------------
 
-Reglas: sin fragmentos sobre el umbral, o si el LLM juzga que el contexto no
-responde, la respuesta es el mensaje de no-información con `sources: []` y
-`used_fallback: true`. Las citas que no se pueden verificar contra el contexto
-recuperado se descartan: el sistema **no inventa fuentes**.
+# Servicio gRPC
 
-### 4.2 gRPC `IndexAdmin` (control plane, `:50051`)
+gRPC funciona como plano de control del sistema.
 
-| RPC | Efecto |
-|---|---|
-| `Ingest(IngestRequest) → stream IngestProgress` | Indexa markdown (opcionalmente `rebuild`), emitiendo progreso por documento (chunks, tokens, segundos). Idempotente. |
-| `PruneIndex(Empty) → PruneResult` | Borra los chunks de documentos que ya no están en `Data/Documentos_MD`. |
-| `IndexStatus(Empty) → IndexStatusResponse` | Chunks, documentos, modelo de embeddings y `device`. |
+Operaciones:
 
-Contrato en `src/asistente_agentico_uao/grpc_impl/protos/index_admin.proto`;
-stubs committeados (se regeneran con `make proto`). Cliente de humo:
-`python scripts/ingest_client.py [--status|--rebuild|--prune|--file X]`.
+  Método        Función
+  ------------- -------------------------------
+  Ingest        Ejecuta indexación documental
+  PruneIndex    Elimina información obsoleta
+  IndexStatus   Consulta estado del índice
 
-### 4.3 Configuración
+Puerto:
 
-Todas las variables de la app usan el prefijo `UAO_RAG__` y se documentan en
-`.env.example` (tabla completa en
-[`plan-trabajo-tecnico.md`](plan-trabajo-tecnico.md) §3.1). Las variables sin
-prefijo (`SITE_ADDRESS`, `TLS_DIRECTIVE`, `IMAGE_TAG`, `APP_UID`) son del
-`docker compose`, no de la aplicación.
+``` text
+50051
+```
 
----
+------------------------------------------------------------------------
 
-## 5. Estructura del repositorio
+# Estructura del repositorio
 
-```text
+``` text
 Asistente-agentico-UAO/
 ├── Data/
-│   ├── Documentos/              # Corpus original (20 PDFs) — solo lectura
-│   ├── Documentos_MD/           # *.md limpios (salida LlamaCloud Parse)
-│   └── chroma/                  # Índice vectorial ChromaDB (gitignored, regenerable)
+│   ├── Documentos/
+│   ├── Documentos_MD/
+│   └── chroma/
+│
 ├── docker/
-│   ├── Dockerfile               # Imagen del backend (multi-stage, uv, no-root)
-│   ├── Dockerfile.frontend      # Imagen ligera de Streamlit (sin ML)
-│   └── Caddyfile                # Proxy inverso TLS, websockets y /api/*
-├── docker-compose.yml           # redis + api + frontend + proxy + mlflow (solo 80/443 publicados)
-├── .dockerignore                # Excluye .env, .venv, cachés y datos del contexto de build
-├── docs/
-│   └── guia-despliegue.md       # Guía de despliegue y operación (Fase 8)
-├── scripts/                     # CLIs: parseo, ingesta, humo, proto, cliente gRPC
-├── src/asistente_agentico_uao/  # Paquete (core · rag · ingestion · api · grpc_impl · frontend)
-├── tests/                       # pytest: unitarias, API/gRPC, caché, frontend y despliegue
-├── Makefile                     # Atajos de desarrollo, Docker y operación
-├── pyproject.toml / uv.lock     # Dependencias gestionadas con uv
-├── .env / .env.example          # Secretos locales (gitignored) / plantilla
-├── asistente-uao-rag.md         # Documento base del alcance
-└── plan-trabajo-tecnico.md      # Plan de trabajo por fases
+│   ├── Dockerfile
+│   ├── Dockerfile.frontend
+│   └── Caddyfile
+│
+├── scripts/
+│   ├── ask.py
+│   ├── ingest.py
+│   ├── ingest_client.py
+│   └── llama_cloud_parsing.py
+│
+├── src/
+│   └── asistente_agentico_uao/
+│       ├── core/
+│       ├── rag/
+│       ├── ingestion/
+│       ├── api/
+│       ├── frontend/
+│       └── grpc_impl/
+│
+├── tests/
+├── docker-compose.yml
+├── Makefile
+├── pyproject.toml
+└── README.md
 ```
 
----
+------------------------------------------------------------------------
 
-## 6. Pruebas y estilo
+# Pruebas
 
-```bash
-make test            # uv run pytest  → suite completa (rápida, sin red ni GPU)
-make test-fast       # uv run pytest -m "not slow"
-make test-slow       # integración real: embeddings E5 + Chroma efímero
-make lint            # uv run ruff check src scripts tests
-make format          # uv run ruff format + --fix
-make check           # lint + test
+Ejecutar:
+
+``` bash
+make test
 ```
 
-Cobertura de la suite: chunking, limpieza de markdown, configuración, API REST
-(`TestClient`), gRPC en proceso, caché semántica (`fakeredis`), cliente HTTP del
-frontend, cadena RAG (con LLM/embeddings mockeados) y **validación estática del
-despliegue** (`tests/test_deployment.py`: los 5 servicios del compose, la red
-interna y que solo el proxy publique 80/443 —incluido el tracking server de
-MLflow—, Dockerfiles, `.dockerignore` y ausencia de secretos en los archivos
-versionados).
+Las pruebas validan:
 
----
+-   Configuración.
+-   Procesamiento documental.
+-   Chunking.
+-   Embeddings.
+-   Recuperación.
+-   API REST.
+-   gRPC.
+-   Frontend.
+-   Despliegue Docker.
 
-## 7. Operación
+------------------------------------------------------------------------
 
-| Necesidad | Comando |
-|---|---|
-| Ver estado y salud | `make ps`, `make health`, `make cache-stats` |
-| Ver logs de un servicio | `make logs-api` / `logs-frontend` / `logs-proxy` / `logs-redis` |
-| Reindexar el corpus | `make ingest-docker` (incremental) o `make ingest-rebuild-docker` (limpio) |
-| Invalidar el caché semántico | `make cache-flush` (también se invalida tras un rebuild vía gRPC) |
-| Estado del índice por gRPC | `make grpc-status` |
-| Ver trazas del LLM (MLflow) | https://mlflow.localhost/ · logs: `make logs-mlflow` |
-| Respaldar / restaurar el índice | `make index-backup`, `make index-restore FILE=…` |
-| Entrar al contenedor | `make shell` (API), `make redis-cli` (caché) |
+# Modelo utilizado
 
-La guía de despliegue detalla persistencia, respaldos, renovación de
-certificados y verificación de que `:8000`, `:50051`, `:6379` y `:5000`
-(MLflow) no quedan publicados al host.
+El sistema utiliza:
 
----
+  Componente   Modelo
+  ------------ ----------------------------------
+  Embeddings   `intfloat/multilingual-e5-base`
+  Generación   `qwen-3.8-27b` mediante Cerebras
 
-## 8. Seguridad y privacidad
+El proyecto no realiza fine-tuning. La actualización del conocimiento se
+realiza agregando nuevos documentos e indexando nuevamente la
+información.
 
-- Los secretos viven solo en `.env` (gitignored) o en variables de entorno;
-  nunca en el repositorio, las imágenes ni los logs.
-- Superficie pública mínima: solo el proxy TLS (80/443). API, gRPC y Redis sin
-  puertos publicados.
-- El *tracking server* de MLflow (Fase 9) también vive en la red interna y solo
-  se alcanza a través del proxy (`https://mlflow.<SITE_ADDRESS>`). Sus trazas
-  (pregunta, contexto, respuesta, tokens y latencia) quedan en el volumen
-  `mlflow_data` del host, nunca en un servicio público. Es opcional y
-  degradable: sin `MLFLOW_TRACKING_URI` la API no importa ni usa MLflow.
-- El chat no solicita ni almacena datos personales (Ley 1581 de 2012): la caché
-  guarda preguntas y respuestas anonimizadas, nunca identidades.
-- Las respuestas son orientativas, citan la fuente oficial y no reemplazan la
-  asesoría de Secretaría Académica o Bienestar Universitario.
-- Al usar LlamaCloud Parse, los PDFs institucionales (normativa pública) se
-  suben por API y el archivo remoto se elimina tras el parseo.
+------------------------------------------------------------------------
 
----
+# Concepto RAG
 
-## 9. Referencias
+RAG combina recuperación de información y generación de lenguaje.
 
-- [`asistente-uao-rag.md`](asistente-uao-rag.md) — documento base (alcance, objetivos, stack).
-- [`plan-trabajo-tecnico.md`](plan-trabajo-tecnico.md) — plan por fases, contratos y riesgos.
-- [`docs/guia-despliegue.md`](docs/guia-despliegue.md) — despliegue, TLS, respaldos y troubleshooting.
+Primero se buscan fragmentos relevantes dentro de la base documental.
+Posteriormente estos fragmentos son entregados al modelo generador para
+producir una respuesta basada en información disponible.
+
+Este enfoque permite actualizar el conocimiento del asistente sin
+modificar los pesos del modelo.
+
+------------------------------------------------------------------------
+
+# Licencia
+
+Este proyecto se distribuye bajo la licencia Apache 2.0.
+
 
