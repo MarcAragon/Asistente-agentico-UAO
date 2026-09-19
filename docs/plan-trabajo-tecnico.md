@@ -3,7 +3,8 @@
 > Proyecto: asistente conversacional RAG para normativa institucional UAO.
 > Alcance de este plan: **backend + APIs (REST de consulta y gRPC de
 > ingesta) + frontend web (Streamlit) + caché semántica (Redis) +
-> contenerización (Docker)**. Documento base: `asistente-uao-rag.md`.
+> contenerización (Docker) + observabilidad del LLM (MLflow)**.
+> Documento base: `asistente-uao-rag.md`.
 > Fecha: 2026-09-08. Desde el 2026-09-17 este documento vive en `docs/`
 > (movido junto a `asistente-uao-rag.md` y `guia-despliegue.md`).
 > **Actualización 2026-09-09**: la extracción (Fase 1) migró de PyMuPDF+EasyOCR
@@ -25,6 +26,13 @@
 > `Makefile`), README técnico y guía de despliegue. Dependencias F7/F8
 > añadidas a la tabla §0.1, variables de despliegue (compose/Caddy)
 > documentadas en §3.1 y pruebas de despliegue registradas en §5.
+> **Actualización 2026-09-18 (rama `feat--ml_flow`)**: **Fase 9 —
+> Observabilidad del LLM con MLflow** (tracking server + dashboard de trazas),
+> que el documento base no contemplaba y por eso **no estaba en este plan**.
+> Ver la dependencia en §0.1, la decisión 11 de §0.4, la fase completa en §4,
+> las variables en §3.1, las pruebas en §5 y los riesgos en §6. El servicio
+> `mlflow` se suma a los 4 servicios de F8 **sin publicar puertos** (el
+> dashboard se sirve por el proxy Caddy).
 
 ---
 
@@ -48,6 +56,7 @@
 | `streamlit` (F7) | 1.64.0 | ✅ Chat web (`frontend/app.py`); el Dockerfile.frontend fija `==1.64.0` y `httpx==0.28.1` |
 | `httpx` (F7) | 0.28.1 | ✅ Cliente HTTP del frontend hacia `POST /ask` |
 | `redis` (F7) | 8.1.0 | ✅ Cliente del caché semántico (fakeredis en desarrollo, Redis real en compose) |
+| `mlflow` (F9) | 3.16.1 | ✅ Cliente del *tracking* de trazas del LLM (`mlflow.openai.autolog()` en `api/main.py`); el compose usa la imagen oficial `ghcr.io/mlflow/mlflow` |
 | `grpcio` / `grpcio-tools` / `protobuf` (F5) | 1.83.1 / 1.83.1 / 7.36.1 | ✅ Control plane de ingesta y stubs generados (`scripts/gen_proto.py`) |
 
 > **Cambio 2026-09-09**: se retiraron del proyecto `pymupdf` y `easyocr`
@@ -125,6 +134,16 @@ presentan **tres perfiles de extracción**:
     pide el doc base §1.4. Es **opcional y degradable**: sin Redis la API
     responde igual (solo más lenta); se invalida al reindexar para no servir
     respuestas de un índice viejo.
+11. **Observabilidad del LLM (2026-09-18, F9)**: **MLflow** como *tracking
+    server* de las llamadas al LLM. La API se instrumenta con
+    `mlflow.openai.autolog()` —funciona con Cerebras porque `ChatCerebras`
+    hereda de `BaseChatOpenAI` y construye clientes `openai.OpenAI` apuntados
+    a `api.cerebras.ai`—, **solo si el entorno define `MLFLOW_TRACKING_URI`**
+    (lo hace `docker-compose.yml`): es opcional y degradable, y en local no se
+    importa `mlflow`. El dashboard se sirve por el proxy
+    (`https://mlflow.<SITE_ADDRESS>`) y el servicio no publica puertos. El
+    documento base no menciona observabilidad del modelo, por eso se registra
+    como **Fase 9** (fuera del alcance original, ver §4).
 
 ---
 
@@ -191,6 +210,10 @@ Flujo de datos:
 5. **Caché semántica (F7)**: antes de llamar al LLM se consulta Redis con el
    embedding de la pregunta; un hit devuelve la respuesta guardada (con sus
    fuentes y su `model`) sin gastar tokens. Se invalida al reindexar.
+6. **Observabilidad (F9)**: cada llamada al LLM queda trazada en MLflow
+   (prompt con contexto, respuesta, tokens y latencia) dentro del experimento
+   `asistente-uao`; el dashboard se consulta por el proxy y el *tracking
+   server* nunca se expone (red interna + volumen `mlflow_data`).
 
 ---
 
@@ -222,13 +245,13 @@ Asistente-agentico-UAO/
 │   │   ├── cache.py             # FASE 7: caché semántica en Redis (opcional)
 │   │   └── service.py           # FASE 5: AppState compartido REST/gRPC
 │   ├── ingestion/               # FASE 2/5: chunk.py + pipeline.py (ingesta compartida)
-│   ├── api/                     # FASE 5: main.py (app FastAPI) + schemas.py
+│   ├── api/                     # FASE 5/9: main.py (app FastAPI + autolog de MLflow) + schemas.py
 │   ├── grpc_impl/               # FASE 5: proto + servicer + server (control de ingesta)
 │   └── frontend/                # FASE 7: app.py (chat Streamlit) + client.py (cliente HTTP)
 
 ├── docker/                      # FASE 8: Dockerfile (backend), Dockerfile.frontend
-│                                #         y Caddyfile (proxy inverso TLS)
-├── docker-compose.yml           # FASE 8: redis + api + frontend + proxy (solo 80/443)
+│                                #         y Caddyfile (proxy inverso TLS + dashboard MLflow)
+├── docker-compose.yml           # FASE 8/9: redis + api + frontend + proxy + mlflow (solo 80/443)
 ├── .dockerignore                # FASE 8: sin .env, .venv, cachés ni Data/ en el build
 ├── tests/                       # pytest (unit + integración + despliegue estático)
 ├── Makefile                     # atajos: dev, pipeline, docker, operación y respaldos
@@ -304,7 +327,7 @@ paquete instalado (la imagen del frontend solo instala `streamlit` y
 | `UAO_RAG__API_BASE_URL` | `http://localhost:8000` | URL de la API que consume el frontend (solo frontend, F7) |
 | `UAO_RAG__FEEDBACK_ENABLED` | `0` | Panel «¿fue útil?» (nice-to-have §2.3); si está en `0` no se muestra (F7) |
 
-Variables de despliegue (F8, las consume el compose/Caddy; NO llevan el
+Variables de despliegue (F8/F9, las consume el compose/Caddy; NO llevan el
 prefijo `UAO_RAG__` porque no son ajustes de `Settings`):
 
 | Variable | Default | Uso |
@@ -314,6 +337,14 @@ prefijo `UAO_RAG__` porque no son ajustes de `Settings`):
 | `IMAGE_TAG` | `0.1.0` | Etiqueta de las imágenes construidas por el compose |
 | `APP_UID` / `APP_GID` | uid/gid del host | Exportados por el `Makefile` (`id -u`/`id -g`) y pasados como `build.args` para que el bind `./Data` sea escribible sin privilegios |
 | `HF_HOME` | `/models` (en contenedor) | Caché del modelo de embeddings en el volumen `models_cache` (fijado también en el Dockerfile) |
+| `MLFLOW_TRACKING_URI` | `http://mlflow:5000` (en compose) | Endpoint del *tracking server* que consume la API; **si no se define, la instrumentación queda apagada** (F9) |
+| `MLFLOW_EXPERIMENT_NAME` | `asistente-uao` (en compose) | Experimento donde MLflow agrupa las trazas del LLM (F9) |
+
+> **F9 — dashboard de observabilidad**: se consume en
+> `https://mlflow.<SITE_ADDRESS>` (subdominio servido por el proxy Caddy, como
+> el chat). El servicio `mlflow` no publica puertos (`expose: "5000"`), guarda
+> su backend SQLite y sus artefactos en el volumen `mlflow_data` y la API le
+> envía las trazas por la red interna.
 
 ### 3.2 Esquema de la colección ChromaDB
 
@@ -592,7 +623,7 @@ de la 010.
 |---|---|---|
 | 8.1 | `Dockerfile` backend | ✅ `docker/Dockerfile`: multi-stage sobre `python:3.14-slim` (ARG `PYTHON_VERSION`, alineado con `.python-version`); `uv` copiado de la imagen oficial (`ghcr.io/astral-sh/uv:0.12.2`, nada de `pip`); capa de dependencias (`uv sync --frozen --no-dev --no-install-project`) separada de la del código (`uv sync --frozen --no-dev`); runtime con `libgomp1` (OpenMP de torch/onnxruntime), `ca-certificates`, usuario **sin privilegios** `app` (uid/gid del host vía `ARG APP_UID/APP_GID`) y `HEALTHCHECK` sobre `/health`. El índice **no se construye en el build**: `./Data` (índice + corpus + markdown) se monta desde el host y el modelo E5 se cachea en el volumen `models_cache` (`HF_HOME=/models`). Se fija `PYTHONPATH=/app/src` porque `core/config.py` deriva `PROJECT_ROOT` de `parents[3]`: importado desde `site-packages` apuntaría a `.venv/lib` |
 | 8.2 | `Dockerfile` frontend | ✅ `docker/Dockerfile.frontend`: venv propio con `uv venv` + `uv pip install "streamlit==1.64.0" "httpx==0.28.1"` (versiones del `uv.lock`, sin torch/chromadb/sentence-transformers), usuario `app`, `HEALTHCHECK` sobre `/_stcore/health`, arranque `streamlit run frontend/app.py --server.headless=true` (con `WORKDIR /app`, el paquete se copia como `/app/frontend/`) |
-| 8.3 | `docker-compose.yml` | ✅ servicios `proxy` (Caddy, **único** con puertos publicados 80/443), `frontend` (:8501 `expose`), `api` (:8000 REST + :50051 gRPC `expose`), `redis` (:6379 `expose`); `env_file: .env` con `required: false`; `healthcheck` en los 4 servicios y `depends_on: condition: service_healthy` (api→redis, frontend→api, proxy→frontend); red `internal`; volúmenes `redis_data`, `models_cache`, `caddy_data`, `caddy_config` + bind `./Data:/app/Data`. El Redis real sustituye al `fakeredis` de desarrollo apuntando `UAO_RAG__REDIS_URL` a `redis://redis:6379/0` (solo configuración: `cache.py` no cambia) |
+| 8.3 | `docker-compose.yml` | ✅ servicios `proxy` (Caddy, **único** con puertos publicados 80/443), `frontend` (:8501 `expose`), `api` (:8000 REST + :50051 gRPC `expose`), `redis` (:6379 `expose`) — F9 añade el 5.º servicio `mlflow` (`:5000` `expose`); `env_file: .env` con `required: false`; `healthcheck` en los 4 servicios y `depends_on: condition: service_healthy` (api→redis, frontend→api, proxy→frontend); red `internal`; volúmenes `redis_data`, `models_cache`, `caddy_data`, `caddy_config` + bind `./Data:/app/Data`. El Redis real sustituye al `fakeredis` de desarrollo apuntando `UAO_RAG__REDIS_URL` a `redis://redis:6379/0` (solo configuración: `cache.py` no cambia) |
 | 8.4 | README técnico + `Makefile` | ✅ `README.md` (arquitectura, requisitos, puesta en marcha, contratos REST/gRPC, estructura, pruebas, operación, seguridad) y `Makefile` reescrito autodocumentado (`make help` con secciones vía `##@`/`##`): entorno y calidad (`install`, `env-init`, `lint`, `format`, `check`, `test[-fast|-slow]`, `proto`), pipeline (`parse*`, `ingest*`), desarrollo (`api`, `grpc`, `frontend`, `ask-cli`, `smoke`), Docker (`config`, `build`, `up`, `down`, `restart`, `ps`, `logs*`, `shell`, `redis-cli`, `models-prefetch`, `health`, `ask`, `urls`, `grpc-url`), operación (`ingest-docker`, `grpc-status`, `cache-flush`, `cache-stats`) y respaldos/limpieza (`index-backup`, `index-restore`, `clean`, `clean-volumes`, `clean-images`, `disk`), conservando los alias previos (`docker-up`, `docker-down`, `redis-test`…) |
 | 8.5 | Guía de despliegue | ✅ `docs/guia-despliegue.md` (13 secciones): arquitectura desplegada, requisitos, preparación, variables (app y compose), despliegue paso a paso con verificación, persistencia y **respaldos** (índice, certificados con advertencia sobre claves privadas, caché), **TLS** (CA interna de Caddy para local y ACME con renovación automática para dominio real), operación (actualizar, reindexar, invalidar caché, cron), **GPU opcional**, seguridad/privacidad (verificación de que `:8000`/`:50051`/`:6379`/`:8501` no se publican), solución de problemas (Docker y aplicación) y checklist de despliegue |
 
@@ -655,6 +686,74 @@ de la 010.
 
 ---
 
+### Fase 9 — Observabilidad del LLM con MLflow (fuera del alcance del doc base) — ✅ COMPLETADA (2026-09-18)
+
+**Por qué no estaba en el plan**: `asistente-uao-rag.md` no contempla
+observabilidad del modelo (trazas/experimentos); la Fase 8 cerró el despliegue
+con 4 servicios y el invariante «solo el proxy publica puertos». Esta fase, ya
+implementada en la rama `feat--ml_flow`, se documenta aquí **a posteriori** para
+dejar el registro actualizado (el código existía sin sección en el plan).
+
+**Concepto**: el RAG ya cita fuentes y los humos miden latencia, pero sin trazas
+por llamada no se puede auditar qué prompt/contexto produjo cada respuesta.
+MLflow da ese registro (prompt, respuesta, modelo, parámetros, tokens y
+latencia) y un dashboard para comparar modelos y detectar regresiones. Es la
+pieza de observabilidad de un sistema agéntico, no una funcionalidad del
+estudiante: **la API responde igual si MLflow no está**.
+
+| # | Tarea | Estado / artefacto |
+|---|---|---|
+| 9.1 | Dependencia `mlflow` | ✅ `pyproject.toml` / `uv.lock` (cliente 3.16.1, `uv add mlflow`) |
+| 9.2 | Instrumentación de la API | ✅ `api/main.py`: si el entorno define `MLFLOW_TRACKING_URI`, se ejecuta `mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)` + `mlflow.openai.autolog()`. Funciona con Cerebras porque `ChatCerebras` hereda de `BaseChatOpenAI` y crea clientes `openai.OpenAI`/`AsyncOpenAI` hacia `api.cerebras.ai`. En local, sin la variable, ni siquiera se importa `mlflow` |
+| 9.3 | Servicio de *tracking* | ✅ `docker-compose.yml`, servicio `mlflow` (`ghcr.io/mlflow/mlflow`): `mlflow server` con backend SQLite (`--backend-store-uri sqlite:////mlflow/mlflow.db`, `--workers 1` porque SQLite no admite varios escritores), artefactos en `/mlflow/artifacts`, `--allowed-hosts "*"`, `expose: "5000"` (red interna, **sin `ports`**) y `healthcheck` sobre `/health` con `depends_on: service_healthy` desde `api` |
+| 9.4 | Dashboard por el proxy | ✅ `docker/Caddyfile`: sitio `mlflow.{$SITE_ADDRESS:localhost}` con `tls {$TLS_DIRECTIVE:internal}` y `reverse_proxy mlflow:5000`; se conserva el invariante de F8 (solo el proxy publica 80/443) |
+| 9.5 | Persistencia | ✅ volumen `mlflow_data` (`/mlflow`): experimentos + trazas SQLite + artefactos; sobrevive a `down`/`up` |
+| 9.6 | Operación | ✅ `Makefile`: `logs-mlflow` y `urls` (imprime el dashboard); `.env.example` documenta que el compose fija `MLFLOW_TRACKING_URI`/`MLFLOW_EXPERIMENT_NAME` |
+| 9.7 | Pruebas | ✅ `tests/test_deployment.py` (+1 prueba, 16 en total): 5 servicios, `mlflow` sin puertos publicados, `expose 5000`, volumen `mlflow_data`, SQLite, healthcheck, `MLFLOW_TRACKING_URI=http://mlflow:5000` y `depends_on: service_healthy` en `api`, y la ruta `mlflow.{$SITE_ADDRESS:localhost}` del Caddyfile |
+| 9.8 | Documentación | ✅ `README.md` (§1 observabilidad, §3.2 URLs, §3.3 atajos, §6 pruebas, §7 operación, §8 privacidad), `docs/guia-despliegue.md` (§4.2 variables, §5.1/§5.2 verificación, §6 respaldos, §10 seguridad y §11 troubleshooting) y esta fase del plan |
+
+**Criterio de aceptación F9**:
+- `uv run pytest`: ✅ **96/96** (95 previas + 1 nueva de MLflow) y `ruff` en verde.
+- `docker compose config`: ✅ válido; la interpolación confirma que **solo**
+  `proxy` publica puertos (`mlflow` queda con `expose: "5000"`).
+- `https://mlflow.<SITE_ADDRESS>` abre el dashboard con el experimento
+  `asistente-uao` y una traza por `POST /ask` (mensajes, tokens y latencia).
+- Sin `MLFLOW_TRACKING_URI` (desarrollo local), la API responde igual:
+  **degradable**.
+
+**Decisiones y notas F9 (2026-09-18)**:
+
+1. **`mlflow.openai.autolog()` y no `mlflow.langchain.autolog()`**: el efecto
+   es equivalente porque `ChatCerebras` es un `BaseChatOpenAI` que construye el
+   cliente `openai.OpenAI`; instrumentar el SDK captura también las llamadas
+   reintentadas y la rotación de claves de `core/llm.py`. Si una versión futura
+   de `langchain-cerebras` dejara de usar el SDK de OpenAI, la alternativa es
+   `mlflow.langchain.autolog()` (traza el *Runnable* de LCEL).
+2. **Opt-in por variable de entorno**: `create_app()` solo importa `mlflow` si
+   existe `MLFLOW_TRACKING_URI`; en desarrollo local (`uv run uvicorn`) no hay
+   trazado ni dependencia de red, y por eso los 96 tests no necesitan MLflow.
+3. **La API espera a `mlflow`** (`depends_on: condition: service_healthy`): el
+   precio de no perder las primeras trazas. Como la instrumentación es
+   degradable, si se prioriza la disponibilidad sobre la observabilidad basta
+   con relajar ese `depends_on` (quitarlo o usar `service_started`), sin tocar
+   `main.py`. Queda registrado como riesgo en §6.
+4. **El `ports: 127.0.0.1:5000:5000` se retiró**: contradecía el comentario del
+   propio servicio («no publica puertos») y el invariante verificado de F8, que
+   la suite comprueba. El dashboard se sirve por el proxy
+   (`https://mlflow.<SITE_ADDRESS>`); si en desarrollo se quiere acceso directo
+   sin TLS, re-añadir el mapeo **solo en loopback** y actualizar la prueba.
+5. **`image: latest` todavía sin pin**: la convención de F8 es fijar versiones
+   (`python:3.14-slim`, `uv:0.12.2`, `streamlit==1.64.0`). Aquí se dejó `latest`
+   porque desde el entorno de la sesión no se pudo verificar el tag publicado
+   del servidor (`ghcr.io/mlflow/mlflow:<versión>`); el pin a la versión del
+   cliente (3.16.1) queda como pendiente en §6.
+6. **Privacidad**: las trazas contienen la pregunta del estudiante y el
+   contexto recuperado (normativa pública), pero ningún dato personal; quedan
+   en el volumen `mlflow_data` del host y el servicio no sale de la red interna.
+   Son independientes de la caché semántica (Redis no guarda trazas).
+
+---
+
 ## 5. Estrategia de pruebas (resumen)
 
 > (2026-09-09) Los tests del pipeline anterior (`tests/test_clean.py`,
@@ -673,13 +772,15 @@ de la 010.
   API local).
 - **Integración** (marcadas `slow`): embeddings reales + Chroma efímero;
   1 llamada real a Cerebras (opcional, tras `pytest -m "not slow"`).
-- **Despliegue (F8)**: `tests/test_deployment.py` (15 pruebas estáticas, sin
+- **Despliegue (F8/F9)**: `tests/test_deployment.py` (16 pruebas estáticas, sin
   Docker ni red) que parsean `docker-compose.yml` con `pyyaml` e inspeccionan
   Dockerfiles, Caddyfile, `.dockerignore`, `.env.example` y `Makefile`:
-  servicios y red interna, que api/frontend/redis no publiquen puertos,
-  healthchecks y `depends_on: service_healthy`, bind `./Data` +
-  `models_cache`, `uv sync --frozen` / `PYTHONPATH` / usuario sin
-  privilegios, rutas TLS del proxy y ausencia de claves reales versionadas.
+  los 5 servicios (api, frontend, proxy, redis y mlflow) y la red interna, que
+  api/frontend/redis/mlflow no publiquen puertos, healthchecks y
+  `depends_on: service_healthy`, bind `./Data` + `models_cache`, `uv sync
+  --frozen` / `PYTHONPATH` / usuario sin privilegios, rutas TLS del proxy
+  (incluido `mlflow.<SITE_ADDRESS>`), volumen `mlflow_data` y ausencia de claves
+  reales versionadas.
 - **Evaluación** (F6): banco de preguntas + métricas de recuperación y
   fidelidad; se ejecuta manualmente, no en CI.
 - Comando base: `uv run pytest -m "not slow"` para el ciclo rápido.
@@ -705,7 +806,10 @@ de la 010.
 | Exposición pública del servicio y datos personales | Doc base §1.4 (proxy TLS + Ley 1581) | Proxy inverso con TLS automático como único puerto público; API/gRPC/Redis en red interna; el chat no pide datos personales y la caché guarda solo pregunta/respuesta |
 | Preguntas reales con jerga/typos distintas del banco de pruebas | Doc base §1.5 (cuarta limitación) | Preguntas de ejemplo en la UI, banco F6 con jerga/typos y caché semántica que absorbe paráfrasis de la misma pregunta |
 | Imagen del backend pesada (~4-5 GB) por las wheels CUDA de `torch` fijadas en `uv.lock` | Verificado al preparar F8: `uv sync` no permite elegir backend de torch (`--torch-backend` solo existe en `uv pip`) | El contenedor funciona en CPU (`resolve_embedding_device` detecta que no hay GPU) y el modelo se cachea en el volumen `models_cache`; multi-stage evita la caché de uv en la imagen final; `make disk` para vigilar el consumo. Optimización futura: índice PyTorch CPU en `pyproject.toml` + re-lock |
-| Regresión de configuración de despliegue (puerto interno publicado, secreto versionado, servicio sin healthcheck) | Riesgo detectado al sistematizar F8 | `tests/test_deployment.py` (15 pruebas estáticas) + `make config`; validan servicios, red interna, ausencia de `ports` en api/frontend/redis, healthchecks, `.dockerignore` y ausencia de claves reales en archivos versionados |
+| Regresión de configuración de despliegue (puerto interno publicado, secreto versionado, servicio sin healthcheck) | Riesgo detectado al sistematizar F8 | `tests/test_deployment.py` (16 pruebas estáticas) + `make config`; validan servicios, red interna, ausencia de `ports` en api/frontend/redis/mlflow, healthchecks, `.dockerignore` y ausencia de claves reales en archivos versionados |
+| Observabilidad acoplada a la disponibilidad del core | F9: `api` declara `depends_on: service_healthy` de `mlflow`, así que un *tracking server* caído impide arrancar la API aunque la instrumentación sea opcional | Decisión consciente para no perder las primeras trazas; alternativa documentada (F9 nota 3): quitar el `depends_on` o usar `service_started`, ya que el código es degradable sin `MLFLOW_TRACKING_URI` |
+| Imagen `ghcr.io/mlflow/mlflow:latest` sin pin | F9: la convención del proyecto es fijar versiones; `latest` puede cambiar el esquema del backend SQLite entre builds | Pin a la versión del cliente (3.16.1) tras verificar el tag con `make up`; respaldar el volumen `mlflow_data` antes de actualizar (guía §6) |
+| Trazas del LLM (preguntas y contexto) persistidas en disco | F9: el volumen `mlflow_data` guarda prompt/respuesta de cada `/ask` | Servicio solo en la red interna y consumido por el proxy; sin datos personales (el chat no los pide) y desactivable no definiendo `MLFLOW_TRACKING_URI`; respaldo opcional (guía §6) |
 | Discrepancia entre el entorno local y el contenedor en las rutas de datos | `core/config.py` deriva `PROJECT_ROOT` de `parents[3]`; importado desde `site-packages` apuntaría a `.venv/lib` | `PYTHONPATH=/app/src` en la imagen + `UAO_RAG__DOCS_DIR`/`MARKDOWN_DIR`/`CHROMA_DIR` explícitas en el compose, con bind `./Data:/app/Data` |
 
 ---
@@ -723,15 +827,18 @@ de la 010.
 | F6 Evaluación+ajustes | 3 | 1-2 sesiones | F5 |
 | **F7 Frontend Streamlit + caché Redis + proxy TLS** | **5** | **1-2 sesiones** | **F5 (puede solaparse con F6)** |
 | F8 Docker+docs (backend+frontend+Redis+proxy) | 5 | ✅ hecho (2026-09-17) | F7 |
-| **Total** | **36 SP** | **~9-12 sesiones** | |
+| F9 Observabilidad con MLflow (fuera del doc base) | 2 | ✅ hecho (2026-09-18) | F8 |
+| **Total** | **38 SP** | **~9-12 sesiones** | |
 
 La **ruta crítica** es F1 → F2 → F3 → F4: cualquier retrabajo en la
 validación manual del texto limpio (F1.9) desplaza todo lo demás, por eso
 es el checkpoint bloqueante actual. F7 solo depende de F5 (ya completada), así
 que puede ejecutarse en paralelo con F6; F8 cierra el proyecto y depende de F7.
-La carga total (36 SP) cuadra con el Kanban del documento base (38 SP, tareas
-008 «interfaz en Streamlit» y 010 «Docker + Redis + Proxy»). Con F7 y F8
-completadas, **queda pendiente F6** (pruebas, evaluación y ajuste fino).
+La carga del alcance del curso (36 SP) cuadra con el Kanban del documento base
+(38 SP, tareas 008 «interfaz en Streamlit» y 010 «Docker + Redis + Proxy»);
+F9 (2 SP) es un extra de observabilidad **fuera de ese alcance**, porque el doc
+base no menciona MLflow. Con F7, F8 y F9 completadas, **queda pendiente F6**
+(pruebas, evaluación y ajuste fino).
 
 ---
 
@@ -755,8 +862,9 @@ contenerizada (`docker/Dockerfile*`, `docker-compose.yml`, `docker/Caddyfile`)
 con su guía de despliegue (`docs/guia-despliegue.md`).
 
 **Fase 8 ✅ COMPLETADA (2026-09-17)**: contenerización end-to-end y
-documentación. `make up` levanta los 4 servicios (proxy TLS con Caddy,
-frontend Streamlit, API REST + gRPC y Redis) publicando solo 80/443, con
+documentación. `make up` levanta los servicios (proxy TLS con Caddy,
+frontend Streamlit, API REST + gRPC y Redis; y desde F9, el *tracking server*
+de MLflow) publicando solo 80/443, con
 healthchecks encadenados, precarga del modelo de embeddings e índice por bind
 mount (persistente entre `down`/`up`). Verificación disponible en esta sesión:
 `docker compose config` válido, `uv run pytest` 95/95 y `ruff` en verde; el
@@ -773,3 +881,16 @@ la contenerización, esta rama movió la documentación a `docs/`
 compatibilidad a propósito: una ruta vieja falla de inmediato en lugar de
 romper en silencio en runtime. En F8 se actualizó el README técnico y se
 añadió la guía de despliegue.
+
+**Fase 9 ✅ COMPLETADA (2026-09-18, rama `feat--ml_flow`)**: observabilidad del
+LLM con MLflow, que **no estaba en el plan** porque el documento base no la
+contempla. La API instrumenta las llamadas al LLM
+(`mlflow.openai.autolog()`, activo solo con `MLFLOW_TRACKING_URI`), el compose
+añade el *tracking server* (`mlflow`, SQLite + volumen `mlflow_data`, sin
+puertos publicados) y el dashboard se sirve por el proxy en
+`https://mlflow.<SITE_ADDRESS>`. Verificación de esta sesión: `uv run pytest`
+**96/96**, `ruff` en verde y `docker compose config` válido (solo `proxy`
+publica 80/443; `mlflow` queda en `expose: "5000"`). Quedan como pendientes de
+la fase el pin de la imagen del servidor y la decisión sobre el `depends_on`
+de `api` (F9 notas 3 y 5, §6). El siguiente paso **sigue siendo F6**:
+métricas de recuperación/generación y recalibración del umbral.

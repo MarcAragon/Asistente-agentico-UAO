@@ -14,10 +14,12 @@ SHELL := /bin/bash
 # Parámetros sobrescribibles desde la línea de comandos,
 # p. ej.: make ask QUESTION="¿hasta cuándo puedo cancelar?"
 # PROXY_URL: superficie pública (proxy TLS) · API_URL: API local sin proxy.
+# MLFLOW_URL: dashboard de MLflow por el proxy (subdominio mlflow.<SITE_ADDRESS>).
 # FILE: filtro parcial de documento para parse/ingest · ARGS: extra para CLIs.
 # Nota: sin comentarios al final de estas líneas (Make los deja como espacios).
 COMPOSE   ?= docker compose
 PROXY_URL ?= https://localhost
+MLFLOW_URL ?= https://mlflow.localhost
 API_URL   ?= http://localhost:8000
 QUESTION  ?= ¿Qué pasa si repruebo tres veces una misma asignatura?
 FILE      ?=
@@ -127,7 +129,7 @@ smoke: ## Humo del motor de recuperación sobre el índice real
 ##@ Docker Compose (Fase 8)
 
 .PHONY: config build up down restart ps logs logs-api logs-frontend logs-proxy
-.PHONY: logs-redis shell redis-cli models-prefetch health ask urls
+.PHONY: logs-redis logs-mlflow shell redis-cli models-prefetch health ask urls
 
 config: ## Valida docker-compose.yml y la interpolación de variables
 	$(COMPOSE) config -q && echo "  docker-compose.yml válido"
@@ -164,6 +166,9 @@ logs-proxy: ## Logs del proxy TLS (Caddy)
 logs-redis: ## Logs de Redis (caché semántico)
 	$(COMPOSE) logs -f --tail=100 redis
 
+logs-mlflow: ## Logs del tracking server de MLflow (observabilidad, Fase 9)
+	$(COMPOSE) logs -f --tail=100 mlflow
+
 shell: ## Shell interactiva dentro del contenedor de la API
 	$(COMPOSE) exec api bash
 
@@ -185,10 +190,11 @@ ask: ## Pregunta al asistente a través del proxy TLS (QUESTION=...)
 		--data '{"question": "$(QUESTION)"}' | python3 -m json.tool
 
 urls: ## Muestra las URLs de acceso y los puertos publicados
-	@echo "  Chat (HTTPS):  $(PROXY_URL)/"
-	@echo "  API (HTTPS):   $(PROXY_URL)/api/health   ·   docs en /api/docs"
+	@echo "  Chat (HTTPS):   $(PROXY_URL)/"
+	@echo "  API (HTTPS):    $(PROXY_URL)/api/health   ·   docs en /api/docs"
+	@echo "  MLflow (HTTPS): $(MLFLOW_URL)/   ·   experimento 'asistente-uao'"
 	@echo "  Publicados al host: 80 y 443 (solo el proxy)"
-	@echo "  Internos (no publicados): api:8000, gRPC:50051, frontend:8501, redis:6379"
+	@echo "  Internos (no publicados): api:8000, gRPC:50051, frontend:8501, redis:6379, mlflow:5000"
 # -------------------------------------- operación dentro del contenedor --
 ##@ Operación en contenedores (ingesta, estado, caché)
 

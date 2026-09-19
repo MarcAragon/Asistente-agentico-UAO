@@ -55,3 +55,12 @@
 :8080 {
 	respond /healthz "ok" 200
 }
+
+# Dashboard de MLflow en subdominio (regla: solo el proxy publica puertos).
+# Con SITE_ADDRESS=localhost, los navegadores resuelven mlflow.localhost
+# a 127.0.0.1 automáticamente.
+mlflow.{$SITE_ADDRESS:localhost} {
+	tls {$TLS_DIRECTIVE:internal}
+
+	reverse_proxy mlflow:5000
+}

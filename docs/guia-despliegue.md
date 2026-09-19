@@ -21,12 +21,20 @@
         host :80  →  308 redirect a :443 (y validación ACME)
         host :443 ─────────────┐  (único puerto público)
                                ▼
-                    ┌──────────────────────┐   red interna `internal`
-                    │  proxy (Caddy, TLS)   │   (sin puertos publicados)
-                    │   /         → frontend│──► frontend  (Streamlit  :8501)
-                    │   /api/*    → api     │──► api       (REST       :8000)
-                    │   /healthz            │    └─ gRPC   (IndexAdmin :50051)
-                    └──────────────────────┘    ─ redis   (caché      :6379)
+                    ┌────────────────────────────────────────────┐
+                    │  proxy (Caddy, TLS)                        │
+                    │                                            │
+                    │   /               → frontend               │
+                    │   /api/*          → api                    │
+                    │   /healthz        → (proxy)                │
+                    │   mlflow.<SITE>   → mlflow                 │
+                    └───────────┬────────────────────────────────┘
+                                │
+        ┌────────────┬──────────┼───────────┬─────────────┐
+        ▼            ▼          ▼           ▼             ▼
+   frontend     api (REST)  gRPC Index    redis        mlflow
+  (Streamlit   + gRPC emb.)  Admin       (caché)     (tracking)
+    :8501         :8000      :50051      :6379         :5000
 ```
 
 | Servicio | Imagen / build | Puertos | Persistencia |
@@ -35,11 +43,13 @@
 | `frontend` | `docker/Dockerfile.frontend` | `8501` (interno) | — |
 | `api` | `docker/Dockerfile` | `8000` y `50051` (internos) | bind `./Data` (índice + corpus) y volumen `models_cache` (modelo E5) |
 | `redis` | `redis:7-alpine` | `6379` (interno) | volumen `redis_data` (AOF) |
+| `mlflow` (F9) | `ghcr.io/mlflow/mlflow` | `5000` (interno; dashboard vía proxy) | volumen `mlflow_data` (SQLite: experimentos y trazas) |
 
-Decisiones relevantes (plan §8):
+Decisiones relevantes (plan §8 y F9):
 
-- **Solo el proxy expone puertos.** La API REST, gRPC y Redis son alcanzables
-  únicamente dentro de la red interna del compose.
+- **Solo el proxy expone puertos.** La API REST, gRPC, Redis y MLflow son
+  alcanzables únicamente dentro de la red interna del compose; el dashboard de
+  MLflow, además, a través del proxy (`https://mlflow.<SITE_ADDRESS>`).
 - **El índice no se construye en el build.** `./Data` se monta desde el host:
   se reutiliza el índice ya generado (`Data/chroma`), el corpus
   (`Data/Documentos/*.pdf`) y el markdown (`Data/Documentos_MD/*.md`), de modo
@@ -146,6 +156,13 @@ resultado es idéntico.
 > se copia a la imagen (`.dockerignore` lo excluye). Verificar que no está
 > versionado: `git check-ignore -v .env`.
 
+> **Observabilidad (Fase 9)**: `docker-compose.yml` fija en el servicio `api`
+> `MLFLOW_TRACKING_URI=http://mlflow:5000` y
+> `MLFLOW_EXPERIMENT_NAME=asistente-uao` (no son variables de `Settings`, no
+> llevan prefijo `UAO_RAG__` y no se configuran en `.env`). Con eso la API
+> instrumenta las llamadas al LLM (`mlflow.openai.autolog()`) y el dashboard se
+> sirve por el proxy en `https://mlflow.<SITE_ADDRESS>`, sin publicar puertos.
+
 ---
 
 ## 5. Despliegue paso a paso
@@ -166,18 +183,20 @@ Desglose de lo que hace (equivalente manual entre paréntesis):
 ### 5.1 Verificación
 
 ```bash
-make ps                      # redis/api/frontend/proxy en estado "healthy"
+make ps                      # redis/api/frontend/proxy/mlflow en estado "healthy"
 make health                  # {"status":"ok","index_chunks":1284,"device":"cpu",...}
 make grpc-status             # control plane interno: chunks y documentos
 make ask                     # POST /ask a través del proxy TLS (respuesta + fuentes)
 curl -sk https://localhost/healthz          # el proxy responde "ok"
 curl -sk https://localhost/api/documents    # documentos indexados
+curl -sk https://mlflow.localhost/health    # tracking server de MLflow (200)
 ```
 
 En el navegador: **https://localhost/** → chat; pregunta de ejemplo
 «¿Qué pasa si repruebo tres veces una misma asignatura?» debe responder con
 fuentes citadas. Una pregunta fuera de dominio (p. ej. «¿receta de arepas?»)
-debe mostrar el aviso de no-información **sin** fuentes.
+debe mostrar el aviso de no-información **sin** fuentes. El dashboard de trazas
+del LLM está en **https://mlflow.localhost/** (experimento `asistente-uao`).
 
 Con `SITE_ADDRESS=localhost` el certificado lo emite la CA interna de Caddy, así
 que el navegador mostrará un aviso de certificado desconocido la primera vez
@@ -187,7 +206,7 @@ que el navegador mostrará un aviso de certificado desconocido la primera vez
 
 ```bash
 docker compose ps                 # la columna PORTS solo debe mostrar 80/443 para el proxy
-ss -tlnp | grep -E ':(8000|50051|6379|8501)'   # sin resultados = correcto
+ss -tlnp | grep -E ':(8000|50051|6379|8501|5000)'   # sin resultados = correcto
 ```
 
 ---
@@ -200,6 +219,7 @@ ss -tlnp | grep -E ':(8000|50051|6379|8501)'   # sin resultados = correcto
 | Corpus y markdown | bind `./Data/Documentos`, `./Data/Documentos_MD` | PDFs oficiales y su markdown | Git / copia del directorio |
 | Caché semántico | volumen `redis_data` | Preguntas + respuestas (AOF). Regenerable | No crítico; `make cache-flush` lo invalida |
 | Modelo E5 | volumen `models_cache` | Pesos descargados (~1,2 GB) | No requiere respaldo (se re-descarga) |
+| Trazas del LLM | volumen `mlflow_data` | SQLite de MLflow: experimentos, trazas (prompt, contexto, respuesta), tokens y latencia | Recomendado si las trazas son valiosas; regenerable |
 | Certificados TLS | volumen `caddy_data` | Certificados y claves ACME/CA interna | Recomendado con ACME (§7.2) |
 
 ### 6.1 Respaldo del índice
@@ -322,7 +342,7 @@ del `Caddyfile` montado y recarga solo; para forzarlo:
 | Estado y salud | `make ps` |
 | Logs (por servicio) | `make logs`, `make logs-api`, `make logs-frontend`, `make logs-proxy`, `make logs-redis` |
 | Consumir recursos | `docker stats`, `make disk` |
-| Arrancar con el host | `restart: unless-stopped` ya está definido en los 4 servicios |
+| Arrancar con el host | `restart: unless-stopped` ya está definido en todos los servicios |
 
 ### 8.2 Actualizar a una nueva versión
 
@@ -406,8 +426,8 @@ del plan (§6). El contenedor funciona igual en CPU, solo ocupa más disco.
 ## 10. Seguridad y privacidad
 
 - **Superficie mínima**: solo 80/443 del proxy. API (`:8000`), gRPC (`:50051`),
-  Streamlit (`:8501`) y Redis (`:6379`) no se publican; verificar con
-  `docker compose ps` y `ss -tlnp` (§5.2).
+  Streamlit (`:8501`), Redis (`:6379`) y MLflow (`:5000`) no se publican;
+  verificar con `docker compose ps` y `ss -tlnp` (§5.2).
 - **Secretos**: viven en `.env` (gitignored) e ingresan por `env_file`; no se
   copian a las imágenes (`.dockerignore`). Rotarlos es editar `.env` y
   `make up`. `tests/test_deployment.py` falla si se detecta una clave con
@@ -420,6 +440,11 @@ del plan (§6). El contenedor funciona igual en CPU, solo ocupa más disco.
   caché guarda preguntas y respuestas, no identidades. El corpus es normativa
   pública. Al usar LlamaCloud Parse, el archivo remoto se elimina tras el
   parseo (plan §6).
+- **Trazas de MLflow (F9)**: el tracking server queda en la red interna y solo
+  se alcanza por el proxy; las trazas se guardan en el volumen `mlflow_data`
+  (prompt, contexto recuperado, respuesta, tokens y latencia). Contienen
+  preguntas y normativa pública, nunca identidades. Para apagarlas, basta con
+  no definir `MLFLOW_TRACKING_URI` en el servicio `api`.
 - **Aviso al usuario**: el frontend muestra que las respuestas son orientativas
   y citan la fuente oficial; no sustituyen la asesoría de Secretaría Académica.
 - **Datos en tránsito**: TLS obligatorio hacia el usuario (HSTS) y HTTPS hacia
@@ -454,6 +479,7 @@ del plan (§6). El contenedor funciona igual en CPU, solo ocupa más disco.
 | El chat muestra «No se pudo conectar con la API» | El contenedor `api` no está `healthy` o `UAO_RAG__API_BASE_URL` mal definida | `make ps`, `make logs-frontend`; en compose debe ser `http://api:8000`. |
 | El chat se queda cargando (websocket) | Proxy sin soporte de `Upgrade` | Usar el `docker/Caddyfile` del repositorio (Caddy lo hace automáticamente) y no publicar Streamlit directamente. |
 | Redis caído y la API sigue funcionando | Comportamiento esperado (caché degradable) | `make logs-redis`; la latencia sube, no hay error. |
+| El dashboard de MLflow no muestra trazas | La API arrancó sin `MLFLOW_TRACKING_URI` o `mlflow` no está `healthy` | `make ps` y `make logs-api` (busca «mlflow»); `make logs-mlflow`. El compose fija `MLFLOW_TRACKING_URI=http://mlflow:5000`. |
 | Parseo con LlamaCloud falla | Clave ausente, sin Internet o cuota | Verificar `LLAMA_CLOUD_API_KEY` y conectividad; el markdown ya generado no se re-parsea sin `make parse-redo`. |
 | Salida a Internet a través de proxy corporativo | La API no llega a Cerebras/HF | Definir `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` en el servicio `api` de `docker-compose.yml`. |
 
@@ -467,10 +493,11 @@ del plan (§6). El contenedor funciona igual en CPU, solo ocupa más disco.
 - [ ] `make config` sin errores.
 - [ ] `Data/chroma` presente y verificado (o construido con `make ingest`).
 - [ ] `SITE_ADDRESS`/`TLS_DIRECTIVE` definidos según el entorno (§7).
-- [ ] `make up` termina con los 4 servicios `healthy` (`make ps`).
+- [ ] `make up` termina con los 5 servicios `healthy` (`make ps`).
 - [ ] `make health` devuelve `status: ok` con el número esperado de chunks.
 - [ ] `make ask` responde con fuentes; una pregunta fuera de dominio no inventa.
 - [ ] Chat accesible por HTTPS en el navegador con websockets funcionando.
+- [ ] Dashboard de trazas accesible en `https://mlflow.<SITE_ADDRESS>` (experimento `asistente-uao`).
 - [ ] `docker compose ps` / `ss -tlnp`: solo 80 y 443 publicados.
 - [ ] Respaldo del índice probado (`make index-backup` + restauración en un entorno de prueba).
 - [ ] (ACME) Certificado emitido, renovación automática y respaldo de `caddy_data`.
@@ -481,7 +508,7 @@ del plan (§6). El contenedor funciona igual en CPU, solo ocupa más disco.
 
 ## 13. Referencias
 
-- [`plan-trabajo-tecnico.md`](../plan-trabajo-tecnico.md) — Fases 7 y 8, contratos (§3), riesgos (§6).
+- [`plan-trabajo-tecnico.md`](../plan-trabajo-tecnico.md) — Fases 7, 8 y 9, contratos (§3), riesgos (§6).
 - [`README.md`](../README.md) — arquitectura, comandos y contratos de la API.
 - [`docker-compose.yml`](../docker-compose.yml), [`docker/Dockerfile`](../docker/Dockerfile),
   [`docker/Dockerfile.frontend`](../docker/Dockerfile.frontend), [`docker/Caddyfile`](../docker/Caddyfile).

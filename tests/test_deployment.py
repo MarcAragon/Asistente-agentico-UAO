@@ -5,7 +5,8 @@ Docker ni la red— para que una regresión de configuración (un puerto publica
 de más, un servicio sin healthcheck, un secreto en un archivo versionado) se
 detecte en `uv run pytest`:
 
-- `docker-compose.yml`: servicios, red interna y ausencia de puertos internos.
+- `docker-compose.yml`: servicios (api, frontend, proxy, redis y mlflow),
+  red interna y ausencia de puertos internos.
 - `docker/Dockerfile*`: uv con lock congelado, usuario sin privilegios, `.env`
   fuera del contexto de build.
 - `docker/Caddyfile`: TLS, rutas `/api/*` y `/`, y healthcheck interno.
@@ -23,7 +24,7 @@ import yaml
 RAIZ = Path(__file__).resolve().parents[1]
 COMPOSE_PATH = RAIZ / "docker-compose.yml"
 
-SERVICIOS = {"api", "frontend", "proxy", "redis"}
+SERVICIOS = {"api", "frontend", "proxy", "redis", "mlflow"}
 PUERTOS_PUBLICOS = {"80", "443"}
 
 # Formatos reales de las claves del proyecto (Cerebras y LlamaCloud): si
@@ -56,12 +57,12 @@ def _leer(ruta_relativa: str) -> str:
     return (RAIZ / ruta_relativa).read_text(encoding="utf-8")
 
 
-def test_compose_define_los_cuatro_servicios(compose):
+def test_compose_define_los_cinco_servicios(compose):
     assert set(compose["services"]) == SERVICIOS
 
 
 def test_solo_el_proxy_publica_puertos(compose):
-    """API, gRPC, Streamlit y Redis viven en la red interna (plan §7.7/§8.5)."""
+    """API, gRPC, Streamlit, Redis y MLflow viven en la red interna (§7.7/§8.5)."""
     servicios = compose["services"]
     for nombre, servicio in servicios.items():
         if nombre == "proxy":
@@ -71,6 +72,32 @@ def test_solo_el_proxy_publica_puertos(compose):
 
     publicados = {str(puerto).split(":")[0] for puerto in servicios["proxy"]["ports"]}
     assert publicados == PUERTOS_PUBLICOS
+
+
+def test_mlflow_es_solo_interno_y_se_sirve_por_el_proxy(compose):
+    """Observabilidad (Fase 9): el tracking server no publica puertos.
+
+    El dashboard se consume vía Caddy (`https://mlflow.<SITE_ADDRESS>`), igual
+    que el resto de la solución: publicar el ``:5000`` al host rompería el
+    invariante de F8. La API le envía las trazas por la red interna.
+    """
+    mlflow = compose["services"]["mlflow"]
+    assert "ports" not in mlflow, "el dashboard se sirve por el proxy, no al host"
+    assert "5000" in mlflow["expose"]
+    assert "mlflow_data:/mlflow" in mlflow["volumes"]
+    assert "sqlite:////mlflow/mlflow.db" in mlflow["command"]
+    assert mlflow["healthcheck"]["test"], "sin healthcheck no hay depends_on fiable"
+
+    # La API instrumenta el LLM solo si el entorno define MLFLOW_TRACKING_URI
+    # (mlflow.openai.autolog, ver api/main.py) y espera al tracking server.
+    api = compose["services"]["api"]
+    assert api["environment"]["MLFLOW_TRACKING_URI"] == "http://mlflow:5000"
+    assert api["depends_on"]["mlflow"]["condition"] == "service_healthy"
+
+    # El dashboard se publica mediante el proxy (misma regla que frontend/api).
+    caddyfile = _leer("docker/Caddyfile")
+    assert "mlflow.{$SITE_ADDRESS:localhost}" in caddyfile
+    assert "reverse_proxy mlflow:5000" in caddyfile
 
 
 def test_todos_los_servicios_usan_la_red_interna(compose):
@@ -97,7 +124,12 @@ def test_api_comparte_el_indice_y_cachea_el_modelo(compose):
     assert "./Data:/app/Data" in volumenes, "el índice debe montarse desde el host"
     assert "models_cache:/models" in volumenes
     assert api["environment"]["HF_HOME"] == "/models"
-    assert set(compose["volumes"]) >= {"redis_data", "models_cache", "caddy_data"}
+    assert set(compose["volumes"]) >= {
+        "redis_data",
+        "models_cache",
+        "caddy_data",
+        "mlflow_data",
+    }
 
 
 def test_conexiones_internas_entre_servicios(compose):
