@@ -116,5 +116,140 @@ def test_format_context_numbers_chunks():
 
     context = format_context(chunks)
 
-    assert "[1] (reglamento.md — Artículo 10): Contenido del artículo." in context
-    assert "[2] (calendario.md — Cancelaciones): Fecha de cancelación." in context
+    assert (
+        "[1] (reglamento.md — Artículo 10): "
+        "Contenido del artículo."
+        in context
+    )
+    assert (
+        "[2] (calendario.md — Cancelaciones): "
+        "Fecha de cancelación."
+        in context
+    )
+
+
+def test_retrieve_respects_top_k_limit(monkeypatch):
+    """Verifica que retrieve limite la cantidad de resultados."""
+
+    collection = FakeCollection(
+        documents=[["A", "B", "C", "D"]],
+        metadatas=[
+            [
+                {
+                    "doc_name": "a.md",
+                    "section": "A",
+                    "chunk_index": 1,
+                    "is_table": False,
+                },
+                {
+                    "doc_name": "b.md",
+                    "section": "B",
+                    "chunk_index": 2,
+                    "is_table": False,
+                },
+                {
+                    "doc_name": "c.md",
+                    "section": "C",
+                    "chunk_index": 3,
+                    "is_table": False,
+                },
+                {
+                    "doc_name": "d.md",
+                    "section": "D",
+                    "chunk_index": 4,
+                    "is_table": False,
+                },
+            ]
+        ],
+        distances=[[0.1, 0.2, 0.3, 0.4]],
+    )
+
+    config = SimpleNamespace(
+        top_k=1,
+        min_similarity=0.0,
+    )
+
+    monkeypatch.setattr(
+        "asistente_agentico_uao.retrieval.embed_query",
+        lambda question: np.array([1, 2, 3]),
+    )
+
+    retriever = Retriever(collection=collection, config=config)
+
+    result = retriever.retrieve("consulta")
+
+    assert len(result) == 1
+
+
+def test_retrieve_marks_table_chunks(monkeypatch):
+    """Verifica que los chunks tipo tabla mantengan su propiedad."""
+
+    collection = FakeCollection(
+        documents=[["Tabla"]],
+        metadatas=[
+            [
+                {
+                    "doc_name": "tabla.md",
+                    "section": "Datos",
+                    "chunk_index": 1,
+                    "is_table": True,
+                }
+            ]
+        ],
+        distances=[[0.1]],
+    )
+
+    config = SimpleNamespace(
+        top_k=3,
+        min_similarity=0.5,
+    )
+
+    monkeypatch.setattr(
+        "asistente_agentico_uao.retrieval.embed_query",
+        lambda question: np.array([1, 2, 3]),
+    )
+
+    retriever = Retriever(collection=collection, config=config)
+
+    result = retriever.retrieve("tabla")
+
+    assert len(result) == 1
+    assert result[0].is_table is True
+
+
+def test_format_context_with_empty_chunks():
+    """Verifica que un contexto vacío retorne una cadena vacía."""
+
+    result = format_context([])
+
+    assert result == ""
+
+
+def test_format_context_preserves_text_order():
+    """Verifica que los fragmentos mantengan el orden recibido."""
+
+    chunks = [
+        SimpleNamespace(
+            doc_name="uno.md",
+            section="Primero",
+            text="Texto primero.",
+            score=0.9,
+            chunk_index=1,
+            is_table=False,
+        ),
+        SimpleNamespace(
+            doc_name="dos.md",
+            section="Segundo",
+            text="Texto segundo.",
+            score=0.8,
+            chunk_index=2,
+            is_table=False,
+        ),
+    ]
+
+    result = format_context(chunks)
+
+    first_position = result.find("Texto primero.")
+    second_position = result.find("Texto segundo.")
+
+    assert first_position < second_position

@@ -31,3 +31,24 @@ def test_resolve_embedding_device_returns_configured_devices(monkeypatch, device
 
     # Assert
     assert result == device
+
+
+def test_settings_has_default_chunk_values():
+    """Verifica que la configuración de chunking tenga valores definidos."""
+    assert config.settings.chunk_size_tokens > 0
+    assert config.settings.chunk_overlap_tokens >= 0
+    assert config.settings.chunk_max_tokens > 0
+
+
+def test_chunk_overlap_is_smaller_than_chunk_size():
+    """Verifica que el solapamiento no supere el tamaño del chunk."""
+    assert (
+        config.settings.chunk_overlap_tokens
+        < config.settings.chunk_size_tokens
+    )
+
+
+def test_embedding_model_is_defined():
+    """Verifica que exista un modelo de embeddings configurado."""
+    assert config.settings.embedding_model is not None
+    assert len(config.settings.embedding_model) > 0
