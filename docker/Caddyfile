@@ -1,0 +1,57 @@
+# Caddyfile — proxy inverso TLS (Fase 7.7 / 8.3).
+#
+# Único servicio con puertos publicados al host (:80 y :443). La API REST,
+# gRPC y Redis viven SOLO en la red interna del compose.
+#
+# Rutas:
+#   /            → frontend Streamlit (:8501), websockets incluidos
+#   /api/*       → API REST (:8000), sin el prefijo /api
+#   /healthz     → 200 del propio proxy (verificación de TLS)
+#   :8080        → sitio interno sin TLS para el healthcheck del contenedor
+#
+# Variables (sustituidas por Caddy antes de parsear, ver
+# https://caddyserver.com/docs/caddyfile/concepts#environment-variables):
+#   SITE_ADDRESS   dominio o `localhost` (default: localhost)
+#   TLS_DIRECTIVE  `internal` (CA local, ideal para demo/intranet) o el
+#                  correo para ACME/Let's Encrypt, p. ej. admin@uao.edu.co.
+#                  Con un dominio público real, Caddy emite y RENUEVA el
+#                  certificado automáticamente (persistido en el volumen
+#                  caddy_data).
+
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	# `internal` = CA propia de Caddy (sin Internet ni DNS).
+	# Con TLS_DIRECTIVE=correo@dominio Caddy usa ACME y renueva solo.
+	tls {$TLS_DIRECTIVE:internal}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# API REST de consulta (data plane). `handle_path` quita el prefijo
+	# /api antes de reenviar a FastAPI (que expone /ask, /health, /documents).
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Chat Streamlit. Caddy reenvía el Upgrade/Connection de los websockets
+	# (_stcore/stream) sin configuración extra.
+	handle {
+		reverse_proxy frontend:8501
+	}
+}
+
+# Sitio auxiliar interno (no publicado al host): healthcheck del contenedor
+# sin negociación TLS ni SNI.
+:8080 {
+	respond /healthz "ok" 200
+}

@@ -221,9 +221,3 @@ __marimo__/
 Data/chroma/
 
 Data/chroma_backup/
-
-# Docker local
-compose.yaml.backup
-
-# TLS private keys
-docker/certs/*.key

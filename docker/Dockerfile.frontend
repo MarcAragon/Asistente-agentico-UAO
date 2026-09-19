@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1
+#
+# Imagen del FRONTEND (Fase 8, tarea 8.2): chat Streamlit.
+# ...(comentarios sin cambios)...
+
+ARG PYTHON_VERSION=3.14
+ARG UV_VERSION=0.12.2
+ARG STREAMLIT_VERSION=1.64.0
+ARG HTTPX_VERSION=0.28.1
+
+# Etapa dedicada para "importar" el binario de uv: usa el ARG global en
+# FROM (sí soportado), evitando la expansión de variables en COPY --from.
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+# Ahora --from apunta a la etapa local "uv", sin variables.
+COPY --from=uv /uv /uvx /bin/
+
+ARG STREAMLIT_VERSION
+ARG HTTPX_VERSION
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN uv venv /app/.venv \
+    && uv pip install --no-cache \
+        "streamlit==${STREAMLIT_VERSION}" \
+        "httpx==${HTTPX_VERSION}"
+
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN set -eu; \
+    if getent group "${APP_GID}" >/dev/null; then \
+        GROUP_NAME="$(getent group "${APP_GID}" | cut -d: -f1)"; \
+    else \
+        GROUP_NAME=app; \
+        groupadd --gid "${APP_GID}" "${GROUP_NAME}"; \
+    fi; \
+    if getent passwd "${APP_UID}" >/dev/null; then \
+        echo "UID ${APP_UID} ya existe, se reutiliza"; \
+    else \
+        useradd --uid "${APP_UID}" --gid "${APP_GID}" \
+            --no-create-home --shell /usr/sbin/nologin app; \
+    fi
+
+WORKDIR /app
+
+COPY --chown=app:app src/asistente_agentico_uao/frontend ./frontend
+COPY --chown=app:app .streamlit ./.streamlit
+
+USER app
+
+EXPOSE 8501
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
+
+CMD ["streamlit", "run", "frontend/app.py", \
+     "--server.port=8501", "--server.address=0.0.0.0", \
+     "--server.headless=true", "--browser.gatherUsageStats=false"]

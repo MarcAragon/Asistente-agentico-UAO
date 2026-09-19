@@ -143,7 +143,9 @@ def _hard_split(text: str, count_tokens: Callable[[str], int], limit: int) -> li
     return pieces or [text]
 
 
-def _split_table(table: str, count_tokens: Callable[[str], int], max_tokens: int) -> list[str]:
+def _split_table(
+    table: str, count_tokens: Callable[[str], int], max_tokens: int
+) -> list[str]:
     """Trocea una tabla grande por filas ``<tr>``, repitiendo ``<thead>``."""
     thead_m = THEAD_RE.search(table)
     thead = thead_m.group(0) if thead_m else ""

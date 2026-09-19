@@ -16,7 +16,8 @@ tokens consumidos):
 
 from types import SimpleNamespace
 
-from asistente_agentico_uao.chain import (
+from asistente_agentico_uao.core.llm import NO_INFO_MESSAGE
+from asistente_agentico_uao.rag.chain import (
     EXCERPT_CHARS,
     RagAnswer,
     _excerpt,
@@ -24,8 +25,7 @@ from asistente_agentico_uao.chain import (
     build_sources,
     extract_citations,
 )
-from asistente_agentico_uao.llm import NO_INFO_MESSAGE
-from asistente_agentico_uao.retrieval import RetrievedChunk
+from asistente_agentico_uao.rag.retrieval import RetrievedChunk
 
 
 def make_chunk(doc: str, section: str, text: str, score: float = 0.9):
@@ -100,6 +100,7 @@ def test_extract_citations_deduplica_y_tolera_espacios():
 def test_extract_citations_sin_citas():
     assert extract_citations("respuesta sin citas") == []
 
+
 # --- build_sources ----------------------------------------------------------
 
 
@@ -170,9 +171,7 @@ def test_umbral_pre_llm_no_gasta_tokens():
     llm = GuardLLM()
     config = SimpleNamespace(llm_model="fake-model")
 
-    result = answer_question(
-        "¿pregunta?", retriever=retriever, llm=llm, config=config
-    )
+    result = answer_question("¿pregunta?", retriever=retriever, llm=llm, config=config)
 
     assert isinstance(result, RagAnswer)
     assert result.answer == NO_INFO_MESSAGE
@@ -212,9 +211,7 @@ def test_respuesta_vacia_se_degrada_a_no_info():
 
 def test_respuesta_con_citas_genera_sources():
     """Flujo feliz: respuesta del LLM con citas verificables → Source."""
-    chunks = [
-        make_chunk("Res-CA-6744.md", "Artículo 70º-2", "límite de repitencias.")
-    ]
+    chunks = [make_chunk("Res-CA-6744.md", "Artículo 70º-2", "límite de repitencias.")]
     retriever = FakeRetriever(chunks=chunks)
     llm = FakeLLM("Máximo tres repitencias (Res-CA-6744.md, Artículo 70º-2).")
     config = SimpleNamespace(llm_model="fake-model")
@@ -246,4 +243,3 @@ def test_prompt_incluye_pregunta_contexto_y_no_info():
     assert "¿mi pregunta?" in prompt
     assert "contenido del contexto." in prompt
     assert NO_INFO_MESSAGE in prompt
-

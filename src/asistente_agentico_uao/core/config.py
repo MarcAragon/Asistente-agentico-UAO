@@ -11,8 +11,8 @@ from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Raíz del proyecto (dos niveles arriba de este archivo: src/asistente_agentico_uao/config.py)
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Raíz del proyecto (tres niveles arriba: src/asistente_agentico_uao/core/config.py)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
@@ -87,11 +87,15 @@ class Settings(BaseSettings):
     # límites de cuota/429 por clave (ver llm.py, CerebrasLLM).
     cerebras_api_keys: str = Field(
         default="",
-        validation_alias=AliasChoices("CEREBRAS_API_KEYS", "UAO_RAG__CEREBRAS_API_KEYS"),
+        validation_alias=AliasChoices(
+            "CEREBRAS_API_KEYS", "UAO_RAG__CEREBRAS_API_KEYS"
+        ),
     )
     llama_cloud_api_key: str = Field(
         default="",
-        validation_alias=AliasChoices("LLAMA_CLOUD_API_KEY", "UAO_RAG__LLAMA_CLOUD_API_KEY"),
+        validation_alias=AliasChoices(
+            "LLAMA_CLOUD_API_KEY", "UAO_RAG__LLAMA_CLOUD_API_KEY"
+        ),
     )
 
 

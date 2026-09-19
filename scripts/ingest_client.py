@@ -29,16 +29,19 @@ async def _ingest(stub, file_match: str | None, rebuild: bool) -> None:
     )
     async for p in stream:
         print(
-            f"{p.doc_name:<72}{p.chunks:>7}{p.seconds:>7.1f}  "
-            f"{p.done}/{p.total_docs}"
+            f"{p.doc_name:<72}{p.chunks:>7}{p.seconds:>7.1f}  {p.done}/{p.total_docs}"
         )
 
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Cliente gRPC de IndexAdmin.")
     parser.add_argument("--file", help="Procesa un solo markdown (match parcial)")
-    parser.add_argument("--rebuild", action="store_true", help="Borra la colección antes")
-    parser.add_argument("--prune", action="store_true", help="Borra chunks de docs ausentes")
+    parser.add_argument(
+        "--rebuild", action="store_true", help="Borra la colección antes"
+    )
+    parser.add_argument(
+        "--prune", action="store_true", help="Borra chunks de docs ausentes"
+    )
     parser.add_argument("--status", action="store_true", help="Estado del índice")
     parser.add_argument("--port", type=int, default=50051, help="Puerto gRPC")
     args = parser.parse_args()

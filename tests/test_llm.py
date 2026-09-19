@@ -19,8 +19,8 @@ from typing import ClassVar
 
 import pytest
 
-from asistente_agentico_uao.config import Settings
-from asistente_agentico_uao.llm import CerebrasLLM, collect_api_keys
+from asistente_agentico_uao.core.config import Settings
+from asistente_agentico_uao.core.llm import CerebrasLLM, collect_api_keys
 
 
 class FakeHTTPError(Exception):
@@ -72,7 +72,7 @@ def llm_env(monkeypatch):
     stub.ChatCerebras = FakeChatCerebras
     monkeypatch.setitem(sys.modules, "langchain_cerebras", stub)
     monkeypatch.setattr(
-        "asistente_agentico_uao.llm.time.sleep",
+        "asistente_agentico_uao.core.llm.time.sleep",
         lambda seconds: sleep_calls.append(seconds),
     )
     return SimpleNamespace(cerebras=FakeChatCerebras, sleeps=sleep_calls)

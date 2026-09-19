@@ -31,7 +31,7 @@ with st.sidebar:
     st.caption("Universidad Autónoma de Occidente")
     if st.button("🗑️ Limpiar conversación", use_container_width=True):
         st.session_state.historial = []
-        
+
 pregunta_escrita = st.chat_input(
     "Escribe tu pregunta sobre la normativa UAO...", max_chars=500
 )
@@ -53,7 +53,9 @@ for mensaje in st.session_state.historial:
     with st.chat_message(mensaje["rol"]):
         st.markdown(mensaje["texto"])
         if mensaje.get("fallback"):
-            st.warning("No hay información suficiente en la normativa para esta pregunta.")
+            st.warning(
+                "No hay información suficiente en la normativa para esta pregunta."
+            )
         elif mensaje.get("fuentes"):
             with st.expander(f"Fuentes ({len(mensaje['fuentes'])})"):
                 for fuente in mensaje["fuentes"]:

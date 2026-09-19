@@ -15,7 +15,7 @@ from __future__ import annotations
 import sys
 import time
 
-from asistente_agentico_uao.chain import answer_question
+from asistente_agentico_uao.rag.chain import answer_question
 
 # 5 in-dominio (respuestas verificables manualmente, hallazgos de F3) +
 # 2 fuera de dominio que DEBEN recibir el mensaje de no-información.
