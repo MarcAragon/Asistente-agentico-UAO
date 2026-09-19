@@ -1,0 +1,162 @@
+# docker-compose.yml — solución completa del Asistente RAG UAO (Fase 8, tarea 8.3).
+#
+# Topología (plan §1, §7.7 y §8.3):
+#
+#   host ──:80/:443──► proxy (Caddy + TLS) ──► frontend (Streamlit :8501)
+#                                         └──► api (REST :8000)
+#   red interna `internal` (no publicada): api ──► redis (:6379)
+#                                          api ──► gRPC IndexAdmin (:50051)
+#
+# Regla de exposición: SOLO el proxy publica puertos. La API, el plano de
+# control gRPC y Redis quedan accesibles únicamente dentro de la red interna.
+#
+# Arranque recomendado (construye, espera a los healthchecks, precarga el
+# modelo de embeddings y muestra las URLs):
+#     make up
+# Equivalente manual:
+#     docker compose up -d --build --wait && make models-prefetch
+#
+# Variables leídas del entorno/.env: SITE_ADDRESS, TLS_DIRECTIVE, APP_UID,
+# APP_GID, IMAGE_TAG (ver .env.example y docs/guia-despliegue.md).
+
+name: asistente-uao
+
+services:
+  # ---------------------------------------------------------------- caché --
+  # Caché semántica de la Fase 7 (Redis real en producción; en desarrollo
+  # local cache.py se prueba con fakeredis, misma interfaz de redis-py).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # AOF activado: el caché sobrevive a reinicios (TTL de 24 h por entrada).
+    command: ["redis-server", "--appendonly", "yes", "--save", "300", "1"]
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"   # solo red interna: nunca se publica al host
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ------------------------------------------------------ backend (F5/F7) --
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        # uid/gid del host para que ./Data sea escribible desde el contenedor.
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    image: asistente-uao-api:${IMAGE_TAG:-0.1.0}
+    init: true
+    restart: unless-stopped
+    env_file:
+      # Secretos y ajustes de la app (gitignored). `required: false` permite
+      # `docker compose config` en un clon recién hecho: `make env-init`.
+      - path: .env
+        required: false
+    environment:
+      # El caché apunta al Redis de la red interna (nunca a localhost).
+      UAO_RAG__REDIS_URL: redis://redis:6379/0
+      # El modelo de embeddings se cachea en el volumen /models: la primera
+      # ejecución lo descarga y los rebuilds ya no lo vuelven a bajar.
+      HF_HOME: /models
+      UAO_RAG__GRPC_ENABLED: "1"
+      UAO_RAG__GRPC_PORT: "50051"
+      # Rutas explícitas (el contenedor monta ./Data en /app/Data).
+      UAO_RAG__DOCS_DIR: /app/Data/Documentos
+      UAO_RAG__MARKDOWN_DIR: /app/Data/Documentos_MD
+      UAO_RAG__CHROMA_DIR: /app/Data/chroma
+    volumes:
+      # Índice pre-construido + corpus + markdown compartidos con el host
+      # (plan 8.1/8.3): `docker compose down && up` conserva el índice y
+      # permite reindexar por gRPC/CLI dentro del propio contenedor.
+      - ./Data:/app/Data
+      - models_cache:/models
+    expose:
+      - "8000"   # REST de consulta (data plane) — interno
+      - "50051"  # gRPC IndexAdmin (control plane) — interno
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [internal]
+    healthcheck:
+      # /health informa chunks indexados, device y contadores de caché.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # --------------------------------------------- frontend (F7) · Streamlit --
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    image: asistente-uao-frontend:${IMAGE_TAG:-0.1.0}
+    init: true
+    restart: unless-stopped
+    environment:
+      # El chat consume SOLO POST /ask por HTTP/JSON y lo hace servidor a
+      # servidor, dentro de la red interna (el navegador nunca ve la API).
+      UAO_RAG__API_BASE_URL: http://api:8000
+    expose:
+      - "8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ------------------------------------- proxy inverso TLS (F7.7) · Caddy --
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"    # redirección HTTP→HTTPS y validación ACME (dominio real)
+      - "443:443"  # única superficie pública (TLS)
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      TLS_DIRECTIVE: ${TLS_DIRECTIVE:-internal}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificados: persistencia y renovación
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  # Red interna: sin `ports`, ningún servicio es alcanzable desde el host.
+  internal:
+    driver: bridge
+
+volumes:
+  redis_data:    # caché semántico (AOF)
+  models_cache:  # modelo de embeddings E5 descargado una sola vez
+  caddy_data:    # certificados TLS (ACME/CA interna) — respaldar
+  caddy_config:  # estado de configuración de Caddy

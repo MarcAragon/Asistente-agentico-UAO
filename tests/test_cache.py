@@ -7,9 +7,9 @@ from __future__ import annotations
 import fakeredis
 import pytest
 
-from asistente_agentico_uao.cache import SemanticCache
-from asistente_agentico_uao.chain import RagAnswer, Source
-from asistente_agentico_uao.config import Settings
+from asistente_agentico_uao.core.config import Settings
+from asistente_agentico_uao.rag.cache import SemanticCache
+from asistente_agentico_uao.rag.chain import RagAnswer, Source
 
 
 @pytest.fixture

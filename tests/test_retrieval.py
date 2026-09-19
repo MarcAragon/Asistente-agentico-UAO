@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from asistente_agentico_uao.retrieval import Retriever, format_context
+from asistente_agentico_uao.rag.retrieval import Retriever, format_context
 
 
 class FakeCollection:
@@ -58,7 +58,7 @@ def test_retrieve_filters_sorts_and_limits_results(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.retrieval.embed_query",
+        "asistente_agentico_uao.rag.retrieval.embed_query",
         lambda question: np.array([0.1, 0.2, 0.3]),
     )
 

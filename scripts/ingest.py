@@ -19,20 +19,20 @@ from __future__ import annotations
 import argparse
 import sys
 
-from asistente_agentico_uao.config import settings
-from asistente_agentico_uao.embeddings import (
+from asistente_agentico_uao.core.config import settings
+from asistente_agentico_uao.core.embeddings import (
     embed_query,
     get_model,
     max_seq_length,
     token_counter,
 )
+from asistente_agentico_uao.core.vectorstore import COLLECTION_NAME, get_collection
 from asistente_agentico_uao.ingestion.pipeline import (
     IngestSummary,
     ingest_documents,
     markdown_paths,
     prune_index,
 )
-from asistente_agentico_uao.vectorstore import COLLECTION_NAME, get_collection
 
 
 def _print_row(s: IngestSummary) -> None:
@@ -84,9 +84,7 @@ def main() -> int:
         return 1
 
     total_chunks = sum(s.n_chunks for s in summaries)
-    print(
-        f"\nTotal: {total_chunks} chunks en {len(summaries)} doc(s)"
-    )
+    print(f"\nTotal: {total_chunks} chunks en {len(summaries)} doc(s)")
     print(
         f"Colección '{COLLECTION_NAME}': {collection.count()} chunks en {settings.chroma_dir}"
     )

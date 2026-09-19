@@ -80,11 +80,7 @@ def test_clean_markdown_normalizes_spacing():
     result = clean_markdown(source)
 
     # Assert
-    assert result == (
-        "# Documento UAO\n\n"
-        "Contenido con espacios.\n"
-        "Segunda línea.\n"
-    )
+    assert result == ("# Documento UAO\n\nContenido con espacios.\nSegunda línea.\n")
 
 
 def test_load_api_key_returns_configured_key(monkeypatch):

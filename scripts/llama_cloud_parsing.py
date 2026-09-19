@@ -23,7 +23,7 @@ from pathlib import Path
 
 from llama_cloud import LlamaCloud
 
-from asistente_agentico_uao.config import settings
+from asistente_agentico_uao.core.config import settings
 
 
 def load_api_key() -> str:
@@ -81,11 +81,14 @@ def main() -> int:
     parser.add_argument("--docs-dir", type=Path, default=settings.docs_dir)
     parser.add_argument("--out-dir", type=Path, default=settings.markdown_dir)
     parser.add_argument(
-        "--file", type=str, default=None,
+        "--file",
+        type=str,
+        default=None,
         help="Procesa un solo PDF (coincidencia parcial de nombre, sin distinguir mayúsculas)",
     )
     parser.add_argument(
-        "--redo", action="store_true",
+        "--redo",
+        action="store_true",
         help="Reprocesa PDFs aunque ya exista su .md de salida",
     )
     args = parser.parse_args()
@@ -99,8 +102,7 @@ def main() -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     pending = [
-        p for p in pdfs
-        if args.redo or not (args.out_dir / f"{p.stem}.md").exists()
+        p for p in pdfs if args.redo or not (args.out_dir / f"{p.stem}.md").exists()
     ]
     skipped = len(pdfs) - len(pending)
     if skipped:
@@ -129,17 +131,23 @@ def main() -> int:
                 raise ValueError("LlamaCloud devolvió markdown vacío")
             out_path.write_text(md, encoding="utf-8")
             elapsed = time.perf_counter() - started
-            print(f"OK  {pdf.name} -> {out_path.name} ({len(md)} chars, {elapsed:.1f}s)")
+            print(
+                f"OK  {pdf.name} -> {out_path.name} ({len(md)} chars, {elapsed:.1f}s)"
+            )
             # Limpieza: borrar el archivo subido para no acumular en LlamaCloud
             try:
                 client.files.delete(file_id=file_obj.id)
             except Exception as del_exc:  # noqa: BLE001 - no interrumpe el pipeline
-                print(f"AVISO  {pdf.name}: no se pudo borrar el archivo remoto: {del_exc}")
+                print(
+                    f"AVISO  {pdf.name}: no se pudo borrar el archivo remoto: {del_exc}"
+                )
         except Exception as exc:  # noqa: BLE001 - reportar y continuar
             failures += 1
             print(f"ERROR {pdf.name}: {exc}", file=sys.stderr)
 
-    print(f"\nListo. {len(pending) - failures}/{len(pending)} markdown en {args.out_dir}")
+    print(
+        f"\nListo. {len(pending) - failures}/{len(pending)} markdown en {args.out_dir}"
+    )
     return 1 if failures else 0
 
 

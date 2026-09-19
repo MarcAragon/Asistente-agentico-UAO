@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 
-from asistente_agentico_uao.retrieval import Retriever, format_context
+from asistente_agentico_uao.rag.retrieval import Retriever, format_context
 
 # Banco informal de humo: preguntas reales de estudiante (con jerga y typos)
 # sobre calendarios, cancelaciones, créditos, admisiones y reglamentos.
@@ -53,8 +53,10 @@ def main() -> int:
         f"min_similarity={retriever.settings.min_similarity}"
     )
     if total == 0:
-        print("ERROR: la colección está vacía; corre scripts/ingest.py primero.",
-              file=sys.stderr)
+        print(
+            "ERROR: la colección está vacía; corre scripts/ingest.py primero.",
+            file=sys.stderr,
+        )
         return 1
 
     all_chunks: list[list] = []
@@ -63,8 +65,10 @@ def main() -> int:
         _print_hits(q, chunks)
         all_chunks.append(chunks)
 
-    print(f"\n{'=' * 78}\nContexto renderizado (format_context) de la primera "
-          "pregunta con resultados:")
+    print(
+        f"\n{'=' * 78}\nContexto renderizado (format_context) de la primera "
+        "pregunta con resultados:"
+    )
     for chunks in all_chunks:
         if chunks:
             print(format_context(chunks[:2])[:1200] + "\n...")

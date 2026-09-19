@@ -1,7 +1,7 @@
 """Motor de recuperación sobre ChromaDB (Fase 3).
 
 ``Retriever.retrieve(question)``: embed de la pregunta con prefijo ``query:``
-(E5, ver ``embeddings.embed_query``), búsqueda bruta de ``top_k * 2``
+(E5, ver ``core.embeddings.embed_query``), búsqueda bruta de ``top_k * 2``
 candidatos en la colección, re-ordenamiento por similitud coseno
 (``score = 1 - distance``, espacio ``cosine``), descarte de lo que no supere
 ``min_similarity`` y corte a ``top_k``.
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config import Settings, settings
-from .embeddings import embed_query
+from ..core.config import Settings, settings
+from ..core.embeddings import embed_query
 
 # Factor de sobre-muestreo en la query bruta: pide top_k * OVERSAMPLE para
 # que, tras el filtro por umbral, queden suficientes candidatos para top_k.
@@ -70,7 +70,7 @@ class Retriever:
     @property
     def collection(self):
         if self._collection is None:
-            from .vectorstore import get_collection
+            from ..core.vectorstore import get_collection
 
             self._collection = get_collection()
         return self._collection

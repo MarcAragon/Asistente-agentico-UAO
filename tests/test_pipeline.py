@@ -8,7 +8,8 @@ prueba: sin modelo real de embeddings ni Chroma.
 import numpy as np
 import pytest
 
-from asistente_agentico_uao.config import settings
+from asistente_agentico_uao.core.config import settings
+from asistente_agentico_uao.core.vectorstore import chunk_id
 from asistente_agentico_uao.ingestion.pipeline import (
     IngestSummary,
     ingest_documents,
@@ -16,7 +17,6 @@ from asistente_agentico_uao.ingestion.pipeline import (
     prune_index,
     validate_chunk_budget,
 )
-from asistente_agentico_uao.vectorstore import chunk_id
 
 
 class FakeCollection:
@@ -90,12 +90,8 @@ def test_ingest_indexa_chunks_con_doc_name_del_pdf(index_dirs, monkeypatch):
     # Los chunks se subieron con IDs deterministas (sha256 doc+index).
     assert collection.upserts, "el upsert no se invocó"
     for upsert in collection.upserts:
-        for meta, chunk_id_hash in zip(
-            upsert["metadatas"], upsert["ids"], strict=True
-        ):
-            assert chunk_id_hash == chunk_id(
-                meta["doc_name"], meta["chunk_index"]
-            )
+        for meta, chunk_id_hash in zip(upsert["metadatas"], upsert["ids"], strict=True):
+            assert chunk_id_hash == chunk_id(meta["doc_name"], meta["chunk_index"])
 
 
 def test_ingest_reporta_progreso_por_documento(index_dirs, monkeypatch):

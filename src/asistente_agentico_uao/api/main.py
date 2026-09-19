@@ -27,10 +27,10 @@ from dataclasses import asdict
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from ..config import Settings
-from ..llm import CerebrasLLM, collect_api_keys
-from ..retrieval import Retriever
-from ..service import AppState
+from ..core.config import Settings
+from ..core.llm import CerebrasLLM, collect_api_keys
+from ..rag.retrieval import Retriever
+from ..rag.service import AppState
 from .schemas import (
     AskRequest,
     AskResponse,
@@ -45,7 +45,9 @@ NO_KEY_DETAIL = (
 )
 
 
-def create_app(config: Settings | None = None, state: AppState | None = None) -> FastAPI:
+def create_app(
+    config: Settings | None = None, state: AppState | None = None
+) -> FastAPI:
     """Fábrica de la app; ``state`` inyectable para tests (sin lifespan real)."""
     cfg = config or (state.config if state is not None else Settings())
 
@@ -129,8 +131,7 @@ def create_app(config: Settings | None = None, state: AppState | None = None) ->
     def documents(request: Request) -> list[DocumentInfo]:
         rag: AppState = request.app.state.rag
         return [
-            DocumentInfo(doc_name=d.doc_name, chunks=d.chunks)
-            for d in rag.documents()
+            DocumentInfo(doc_name=d.doc_name, chunks=d.chunks) for d in rag.documents()
         ]
 
     return app

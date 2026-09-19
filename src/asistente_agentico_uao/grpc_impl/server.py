@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import grpc
 
-from ..config import Settings
-from ..llm import CerebrasLLM
-from ..retrieval import Retriever
-from ..service import AppState
+from ..core.config import Settings
+from ..core.llm import CerebrasLLM
+from ..rag.retrieval import Retriever
+from ..rag.service import AppState
 from .servicer import IndexAdminServicer
 from .stubs import index_admin_pb2_grpc
 
@@ -39,9 +39,7 @@ def create_grpc_server(state: AppState, config: Settings | None = None):
 async def serve() -> None:
     """Modo standalone: sirve solo el control plane gRPC hasta Ctrl-C."""
     cfg = Settings()
-    state = AppState(
-        config=cfg, retriever=Retriever(config=cfg), llm=CerebrasLLM(cfg)
-    )
+    state = AppState(config=cfg, retriever=Retriever(config=cfg), llm=CerebrasLLM(cfg))
     server = create_grpc_server(state, cfg)
     await server.start()
     print(f"[grpc] IndexAdmin (standalone) escuchando en :{cfg.grpc_port}")

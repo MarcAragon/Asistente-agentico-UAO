@@ -3,7 +3,7 @@
 Reutiliza la respuesta de una pregunta ya contestada cuando llega otra
 pregunta semanticamente muy parecida, evitando repetir la recuperacion y
 la llamada al LLM. Se apoya en el modelo de embeddings que ya esta cargado
-en memoria (embeddings.py, E5): cada pregunta nueva se compara por
+en memoria (``core/embeddings.py``, E5): cada pregunta nueva se compara por
 similitud coseno (producto punto, los vectores ya vienen normalizados)
 contra las preguntas cacheadas, y si la mas parecida supera
 ``settings.cache_similarity`` se reutiliza su respuesta.
@@ -23,9 +23,9 @@ from dataclasses import asdict
 import numpy as np
 import redis
 
+from ..core.config import Settings, settings
+from ..core.embeddings import embed_query
 from .chain import RagAnswer, Source
-from .config import Settings, settings
-from .embeddings import embed_query
 
 PREFIJO = "uao_rag:cache"
 
@@ -97,7 +97,9 @@ class SemanticCache:
             hash_ = _hash_pregunta(pregunta)
             ttl = self.config.cache_ttl_seconds
             cliente.set(f"{PREFIJO}:answer:{hash_}", _serializar(respuesta), ex=ttl)
-            cliente.set(f"{PREFIJO}:embedding:{hash_}", json.dumps(vector.tolist()), ex=ttl)
+            cliente.set(
+                f"{PREFIJO}:embedding:{hash_}", json.dumps(vector.tolist()), ex=ttl
+            )
             cliente.set(f"{PREFIJO}:question:{hash_}", pregunta, ex=ttl)
         except redis.RedisError:
             self._client = None

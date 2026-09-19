@@ -1,0 +1,36 @@
+# Contexto de build de Docker (Fase 8).
+# Se excluye todo lo que no debe viajar a la imagen: entornos virtuales,
+# cachés, secretos y datos regenerables/pesados.
+
+# --- Control de versiones y entorno local ---
+.git
+.gitignore
+.github
+.venv
+venv
+env
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+.streamlit/secrets.toml
+
+# --- Secretos: NUNCA al contexto de build (entran por env_file en runtime) ---
+.env
+.env.*
+!.env.example
+
+# --- Datos pesados o generados (se montan en runtime como volumen) ---
+Data/chroma
+Data/chroma_backup
+Data/Documentos
+Data/Documentos_MD
+
+# --- Artefactos de desarrollo y documentación ---
+tests
+docs
+plan-trabajo-tecnico.md
+asistente-uao-rag.md
+Makefile
+docker-compose.yml

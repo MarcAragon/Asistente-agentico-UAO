@@ -24,9 +24,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..config import settings
-from ..embeddings import embed_passages, get_model, max_seq_length, token_counter
-from ..vectorstore import get_collection, prune_missing_docs, upsert_chunks
+from ..core.config import settings
+from ..core.embeddings import (
+    embed_passages,
+    get_model,
+    max_seq_length,
+    token_counter,
+)
+from ..core.vectorstore import get_collection, prune_missing_docs, upsert_chunks
 from .chunk import chunk_markdown
 
 
@@ -138,7 +143,5 @@ def prune_index(collection=None) -> int:
     """Borra chunks de documentos ausentes en ``markdown_dir``; los cuenta."""
     collection = collection if collection is not None else get_collection()
     stems = pdf_stems()
-    valid = {
-        resolve_doc_name(p, stems) for p in settings.markdown_dir.glob("*.md")
-    }
+    valid = {resolve_doc_name(p, stems) for p in settings.markdown_dir.glob("*.md")}
     return prune_missing_docs(collection, valid)
