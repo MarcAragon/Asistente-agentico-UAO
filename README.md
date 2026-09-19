@@ -61,6 +61,19 @@ respuestas y servicios de interacción.
 
 ------------------------------------------------------------------------
 
+# Concepto RAG
+
+RAG combina recuperación de información y generación de lenguaje.
+
+Primero se buscan fragmentos relevantes dentro de la base documental.
+Posteriormente estos fragmentos son entregados al modelo generador para
+producir una respuesta basada en información disponible.
+
+Este enfoque permite actualizar el conocimiento del asistente sin
+modificar los pesos del modelo.
+
+------------------------------------------------------------------------
+
 # Funcionalidades
 
 El proyecto incluye:
@@ -399,29 +412,15 @@ Las pruebas validan:
 
 El sistema utiliza:
 
-  Componente   Modelo
-  ------------ ----------------------------------
-  Embeddings   `intfloat/multilingual-e5-base`
-  Generación   `qwen-3.8-27b` mediante Cerebras
+| Componente | Modelo |
+| --- | --- |
+| Embeddings | `intfloat/multilingual-e5-base` |
+| Generación | `qwen-3.8-27b` mediante Cerebras |
 
-El proyecto no realiza fine-tuning. La actualización del conocimiento se
-realiza agregando nuevos documentos e indexando nuevamente la
-información.
+El proyecto no realiza fine-tuning. Para actualizar la información disponible, se agregan nuevos documentos y se vuelve a generar el índice.
 
 ------------------------------------------------------------------------
 
-# Concepto RAG
-
-RAG combina recuperación de información y generación de lenguaje.
-
-Primero se buscan fragmentos relevantes dentro de la base documental.
-Posteriormente estos fragmentos son entregados al modelo generador para
-producir una respuesta basada en información disponible.
-
-Este enfoque permite actualizar el conocimiento del asistente sin
-modificar los pesos del modelo.
-
-------------------------------------------------------------------------
 
 # Licencia
 
