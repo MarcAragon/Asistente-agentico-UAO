@@ -21,6 +21,7 @@ si ``UAO_RAG__GRPC_ENABLED=1`` (default); su fallo no impide la REST.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
@@ -69,6 +70,23 @@ def create_app(
         grpc_server = getattr(app.state, "grpc_server", None)
         if grpc_server is not None:
             await grpc_server.stop(grace=2)
+
+    # Observabilidad opcional (Fase 9): SOLO se activa si el entorno define
+    # MLFLOW_TRACKING_URI (lo hace docker-compose.yml; en local queda apagado y
+    # no se importa mlflow).
+    if os.environ.get("MLFLOW_TRACKING_URI"):
+        import mlflow
+
+        # Agrupa las trazas bajo un experimento con nombre (lo crea si no
+        # existe). Sin esto caerían todas en "Default".
+        mlflow.set_experiment(os.environ.get("MLFLOW_EXPERIMENT_NAME", "asistente-uao"))
+
+        # Instrumenta el SDK de OpenAI. Funciona con Cerebras porque
+        # ChatCerebras hereda de BaseChatOpenAI y construye clientes
+        # openai.OpenAI/AsyncOpenAI apuntados a api.cerebras.ai: cada
+        # chat.completions.create() queda registrado con mensajes, respuesta,
+        # parámetros, tokens y latencia.
+        mlflow.openai.autolog()
 
     app = FastAPI(
         title="Asistente RAG UAO",

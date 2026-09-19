@@ -62,6 +62,14 @@ por fases es [`plan-trabajo-tecnico.md`](plan-trabajo-tecnico.md).
 | Datos (consulta) | REST/HTTP | `:8000` | `POST /ask`, `GET /health`, `GET /documents`. Solo **lee** el índice y llama al LLM. Es lo único que consume el chat. |
 | Control (ingesta) | gRPC | `:50051` | `Ingest` (progreso en streaming), `PruneIndex`, `IndexStatus`. Máquina a máquina; **nunca** se expone al navegador. |
 
+**Observabilidad (Fase 9):** un *tracking server* de **MLflow** (`:5000`, red
+interna) recibe las trazas de las llamadas al LLM. La API las emite con
+`mlflow.openai.autolog()` —activo **solo** si el entorno define
+`MLFLOW_TRACKING_URI` (lo hace el compose); la instrumentación funciona porque
+`ChatCerebras` hereda de `BaseChatOpenAI` y construye clientes `openai.OpenAI`.
+El dashboard se consume por el proxy en **https://mlflow.<SITE_ADDRESS>** y no
+publica ningún puerto al host.
+
 **Capas del paquete** (`src/asistente_agentico_uao/`) con regla de
 dependencias `core ← rag/ingestion ← api/grpc_impl/frontend`:
 
@@ -121,10 +129,11 @@ make down            # apaga (conserva índice, caché, certificados y modelos)
 ```
 
 - Chat: **https**://localhost/ · API: https://localhost/api/health ·
-  documentación OpenAPI: https://localhost/api/docs
+  documentación OpenAPI: https://localhost/api/docs · dashboard de trazas del
+  LLM: https://mlflow.localhost/
 - Únicos puertos publicados al host: **80** (redirección HTTP→HTTPS y ACME) y
-  **443** (TLS). La API, gRPC, Streamlit y Redis quedan **solo** en la red
-  interna del compose.
+  **443** (TLS). La API, gRPC, Streamlit, Redis y **MLflow** quedan **solo** en
+  la red interna del compose.
 - Certificado TLS: por defecto Caddy usa su **CA interna** (válido para
   `localhost`/intranet, el navegador avisa una vez). Para un dominio real,
   define `SITE_ADDRESS` y `TLS_DIRECTIVE` en `.env` y Caddy emite y renueva el
@@ -142,7 +151,7 @@ Detalles, verificación paso a paso, respaldos y solución de problemas:
 | Entorno y calidad | `install`, `sync`, `env-init`, `lint`, `format`, `check`, `test`, `test-fast`, `test-slow`, `proto` |
 | Pipeline de datos | `parse`, `parse-redo`, `parse-file FILE=…`, `ingest`, `ingest-rebuild`, `ingest-prune` |
 | Desarrollo local | `api`, `grpc`, `frontend`, `ask-cli`, `smoke` |
-| Docker | `config`, `build`, `up`, `down`, `restart`, `ps`, `logs[-api|-frontend|-proxy|-redis]`, `shell`, `redis-cli`, `models-prefetch`, `health`, `ask`, `urls` |
+| Docker | `config`, `build`, `up`, `down`, `restart`, `ps`, `logs[-api|-frontend|-proxy|-redis|-mlflow]`, `shell`, `redis-cli`, `models-prefetch`, `health`, `ask`, `urls` |
 | Operación | `ingest-docker`, `ingest-rebuild-docker`, `grpc-status`, `cache-flush`, `cache-stats` |
 | Respaldos y limpieza | `index-backup`, `index-restore FILE=…`, `clean`, `clean-volumes`, `clean-images`, `disk` |
 
@@ -216,7 +225,7 @@ Asistente-agentico-UAO/
 │   ├── Dockerfile               # Imagen del backend (multi-stage, uv, no-root)
 │   ├── Dockerfile.frontend      # Imagen ligera de Streamlit (sin ML)
 │   └── Caddyfile                # Proxy inverso TLS, websockets y /api/*
-├── docker-compose.yml           # redis + api + frontend + proxy (solo 80/443 publicados)
+├── docker-compose.yml           # redis + api + frontend + proxy + mlflow (solo 80/443 publicados)
 ├── .dockerignore                # Excluye .env, .venv, cachés y datos del contexto de build
 ├── docs/
 │   └── guia-despliegue.md       # Guía de despliegue y operación (Fase 8)
@@ -246,8 +255,10 @@ make check           # lint + test
 Cobertura de la suite: chunking, limpieza de markdown, configuración, API REST
 (`TestClient`), gRPC en proceso, caché semántica (`fakeredis`), cliente HTTP del
 frontend, cadena RAG (con LLM/embeddings mockeados) y **validación estática del
-despliegue** (`tests/test_deployment.py`: compose, Dockerfiles, `.dockerignore`
-y ausencia de secretos en los archivos versionados).
+despliegue** (`tests/test_deployment.py`: los 5 servicios del compose, la red
+interna y que solo el proxy publique 80/443 —incluido el tracking server de
+MLflow—, Dockerfiles, `.dockerignore` y ausencia de secretos en los archivos
+versionados).
 
 ---
 
@@ -260,12 +271,13 @@ y ausencia de secretos en los archivos versionados).
 | Reindexar el corpus | `make ingest-docker` (incremental) o `make ingest-rebuild-docker` (limpio) |
 | Invalidar el caché semántico | `make cache-flush` (también se invalida tras un rebuild vía gRPC) |
 | Estado del índice por gRPC | `make grpc-status` |
+| Ver trazas del LLM (MLflow) | https://mlflow.localhost/ · logs: `make logs-mlflow` |
 | Respaldar / restaurar el índice | `make index-backup`, `make index-restore FILE=…` |
 | Entrar al contenedor | `make shell` (API), `make redis-cli` (caché) |
 
 La guía de despliegue detalla persistencia, respaldos, renovación de
-certificados y verificación de que `:8000`, `:50051` y `:6379` no quedan
-publicados al host.
+certificados y verificación de que `:8000`, `:50051`, `:6379` y `:5000`
+(MLflow) no quedan publicados al host.
 
 ---
 
@@ -275,6 +287,11 @@ publicados al host.
   nunca en el repositorio, las imágenes ni los logs.
 - Superficie pública mínima: solo el proxy TLS (80/443). API, gRPC y Redis sin
   puertos publicados.
+- El *tracking server* de MLflow (Fase 9) también vive en la red interna y solo
+  se alcanza a través del proxy (`https://mlflow.<SITE_ADDRESS>`). Sus trazas
+  (pregunta, contexto, respuesta, tokens y latencia) quedan en el volumen
+  `mlflow_data` del host, nunca en un servicio público. Es opcional y
+  degradable: sin `MLFLOW_TRACKING_URI` la API no importa ni usa MLflow.
 - El chat no solicita ni almacena datos personales (Ley 1581 de 2012): la caché
   guarda preguntas y respuestas anonimizadas, nunca identidades.
 - Las respuestas son orientativas, citan la fuente oficial y no reemplazan la

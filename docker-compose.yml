@@ -1,14 +1,17 @@
 # docker-compose.yml — solución completa del Asistente RAG UAO (Fase 8, tarea 8.3).
 #
-# Topología (plan §1, §7.7 y §8.3):
+# Topología (plan §1, §7.7, §8.3 y Fase 9):
 #
 #   host ──:80/:443──► proxy (Caddy + TLS) ──► frontend (Streamlit :8501)
-#                                         └──► api (REST :8000)
+#                                         ├──► api (REST :8000)
+#                                         └──► mlflow (dashboard :5000)
 #   red interna `internal` (no publicada): api ──► redis (:6379)
 #                                          api ──► gRPC IndexAdmin (:50051)
+#                                          api ──► mlflow (trazas del LLM)
 #
 # Regla de exposición: SOLO el proxy publica puertos. La API, el plano de
-# control gRPC y Redis quedan accesibles únicamente dentro de la red interna.
+# control gRPC, Redis y MLflow quedan accesibles únicamente dentro de la red
+# interna (o a través del proxy, en el caso del dashboard de MLflow).
 #
 # Arranque recomendado (construye, espera a los healthchecks, precarga el
 # modelo de embeddings y muestra las URLs):
@@ -71,6 +74,10 @@ services:
       UAO_RAG__DOCS_DIR: /app/Data/Documentos
       UAO_RAG__MARKDOWN_DIR: /app/Data/Documentos_MD
       UAO_RAG__CHROMA_DIR: /app/Data/chroma
+      # El SDK de MLflow lee MLFLOW_TRACKING_URI solo; no hace falta
+      # set_tracking_uri() en el código.
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: asistente-uao
     volumes:
       # Índice pre-construido + corpus + markdown compartidos con el host
       # (plan 8.1/8.3): `docker compose down && up` conserva el índice y
@@ -82,6 +89,8 @@ services:
       - "50051"  # gRPC IndexAdmin (control plane) — interno
     depends_on:
       redis:
+        condition: service_healthy
+      mlflow:
         condition: service_healthy
     networks: [internal]
     healthcheck:
@@ -150,6 +159,43 @@ services:
       retries: 5
       start_period: 10s
 
+  # -------------------------------------- observabilidad · MLflow ----------
+  # Tracking server: recibe las trazas de mlflow.openai.autolog() (llamadas
+  # al LLM de Cerebras desde la API) y sirve el dashboard. No publica
+  # puertos: se consume por la red interna (api) y vía proxy (dashboard en
+  # https://mlflow.<SITE_ADDRESS>, ver docker/Caddyfile).
+  mlflow:
+    # Servidor oficial. El pin exacto (p. ej. 3.16.1, la versión del cliente
+    # fijada en uv.lock) queda como pendiente en el plan §6: `latest` no es
+    # reproducible entre builds.
+    image: ghcr.io/mlflow/mlflow:latest
+    restart: unless-stopped
+    # workers=1: SQLite no tolera bien múltiples escritores simultáneos.
+    # Si algún día necesitas escalar, migra el backend a Postgres.
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --allowed-hosts "*"
+      --workers 1
+    volumes:
+      - mlflow_data:/mlflow
+    expose:
+      - "5000"   # tracking REST + UI — solo red interna
+    networks: [internal]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=4)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 networks:
   # Red interna: sin `ports`, ningún servicio es alcanzable desde el host.
   internal:
@@ -160,3 +206,4 @@ volumes:
   models_cache:  # modelo de embeddings E5 descargado una sola vez
   caddy_data:    # certificados TLS (ACME/CA interna) — respaldar
   caddy_config:  # estado de configuración de Caddy
+  mlflow_data:   # backend SQLite (experimentos + trazas) — respaldar
