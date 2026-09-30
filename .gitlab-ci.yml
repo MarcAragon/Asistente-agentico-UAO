@@ -1,0 +1,257 @@
+# ==============================================================================
+#  Asistente RAG UAO — Pipeline de CI/CD (GitLab)
+#
+#  Etapas: lint → test → build → deploy.
+#
+#  - lint/test corren con `uv` (nunca pip) sobre la imagen oficial que ya
+#    empaqueta Python 3.14 y uv 0.12.2 (las mismas versiones que
+#    docker/Dockerfile y .python-version).
+#  - build construye las imágenes de `docker/Dockerfile` (backend) y
+#    `docker/Dockerfile.frontend` (chat) y las publica en el Container
+#    Registry del proyecto.
+#  - deploy las despliega por SSH ejecutando `docker compose` en el servidor,
+#    con `docker-compose.ci.yml` apuntando api/frontend a las imágenes del
+#    registry, y verifica `GET /api/health` a través del proxy TLS.
+#
+#  Variables CI/CD a configurar en el proyecto (Settings → CI/CD → Variables):
+#    - CI_REGISTRY_USER / CI_REGISTRY_PASSWORD ..... push/pull de imágenes
+#      (Deploy Token con scopes read_registry + write_registry: a diferencia
+#      del job token, sirve también para el `docker login` del servidor).
+#    - SSH_PRIVATE_KEY (Variable, protegida) ....... clave del usuario de deploy.
+#      NO usar el tipo File: el job hace `echo "$SSH_PRIVATE_KEY" | ssh-add -`,
+#      y una variable File entrega la ruta del archivo, no su contenido.
+#    - SSH_KNOWN_HOSTS (masked) .................... host_keys del servidor
+#      (`ssh-keyscan -H <host>`; no es secreto, el mask es solo cosmético).
+#    - SSH_HOST / SSH_USER / DEPLOY_PATH ........... destino y ruta del repo
+#    - SITE_ADDRESS (opcional) ..................... solo para la URL del entorno
+#  Las claves de la aplicación (CEREBRAS_API_KEY, LLAMA_CLOUD_API_KEY, …) viven
+#  en el `.env` del servidor y el pipeline NO las toca.
+# ==============================================================================
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+# Solo se crean pipelines en MR, en la rama por defecto, en tags y lanzados a
+# mano. Evita duplicar el pipeline de rama y el de merge request.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+variables:
+  PYTHON_VERSION: "3.14"
+  UV_VERSION: "0.12.2"
+  BASE_LAYER: trixie-slim
+  # GitLab monta el directorio de build en otro sistema de archivos: sin `copy`
+  # uv no puede crear hardlinks desde su caché.
+  UV_LINK_MODE: copy
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+  UV_NO_PROGRESS: "1"
+
+# La mayoría de los jobs se pueden cancelar si llega un pipeline más nuevo.
+default:
+  interruptible: true
+
+# ------------------------------------------------------------------ plantillas
+# Caché de ruedas de uv, invalidada cuando cambia el lockfile.
+.uv-cache:
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache/
+
+# Entorno Python gestionado con uv (lint y test).
+.python:
+  image: ghcr.io/astral-sh/uv:${UV_VERSION}-python${PYTHON_VERSION}-${BASE_LAYER}
+  extends: .uv-cache
+
+# Docker-in-Docker para construir las imágenes en el runner.
+.docker:
+  image: docker:27-cli
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+    DOCKER_DRIVER: overlay2
+    DOCKER_BUILDKIT: "1"
+  before_script:
+    - until docker info > /dev/null 2>&1; do echo "Esperando a Docker (dind)…"; sleep 2; done
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        export IMAGE_TAG="$CI_COMMIT_TAG"
+      else
+        export IMAGE_TAG="$CI_COMMIT_SHORT_SHA"
+      fi
+    - export API_IMAGE="$CI_REGISTRY_IMAGE/api:$IMAGE_TAG"
+    - export FRONTEND_IMAGE="$CI_REGISTRY_IMAGE/frontend:$IMAGE_TAG"
+    - echo "Etiqueta de imágenes: $IMAGE_TAG"
+
+# ---------------------------------------------------------------------- lint --
+# Se ejecuta en MR, rama por defecto y tags (workflow).
+lint:
+  stage: lint
+  extends: .python
+  script:
+    - uv sync --frozen
+    - uv run ruff check src scripts tests
+    - uv run ruff format --check src scripts tests
+  after_script:
+    - uv cache prune --ci
+
+# ---------------------------------------------------------------------- test --
+# Suite rápida: usa dobles de prueba (fakeredis, FakeCollection…), sin red ni
+# claves de API. Las pruebas `slow` (modelo E5 real + Chroma) van aparte.
+test:
+  stage: test
+  extends: .python
+  timeout: 1h
+  script:
+    - uv sync --frozen
+    - uv run pytest -m "not slow" --junitxml=report.xml
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - report.xml
+    reports:
+      junit: report.xml
+  after_script:
+    - uv cache prune --ci
+
+# Integración real (descarga el modelo de embeddings y usa Chroma). Manual y
+# tolerante a fallos: requiere red y, según el corpus, bastante tiempo/CPU.
+test:slow:
+  stage: test
+  extends: .python
+  timeout: 2h
+  allow_failure: true
+  script:
+    - uv sync --frozen
+    - uv run pytest -m slow
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+
+# --------------------------------------------------------------------- build --
+# Solo en la rama por defecto y en tags (no en MR).
+build:api:
+  stage: build
+  extends: .docker
+  timeout: 2h
+  script:
+    - 'docker pull "$CI_REGISTRY_IMAGE/api:latest" || true'
+    - |
+      docker build \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        --cache-from "$CI_REGISTRY_IMAGE/api:latest" \
+        -f docker/Dockerfile \
+        -t "$API_IMAGE" \
+        .
+    - docker push "$API_IMAGE"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$API_IMAGE" "$CI_REGISTRY_IMAGE/api:latest"
+        docker push "$CI_REGISTRY_IMAGE/api:latest"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+build:frontend:
+  stage: build
+  extends: .docker
+  timeout: 1h
+  script:
+    - 'docker pull "$CI_REGISTRY_IMAGE/frontend:latest" || true'
+    - |
+      docker build \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        --cache-from "$CI_REGISTRY_IMAGE/frontend:latest" \
+        -f docker/Dockerfile.frontend \
+        -t "$FRONTEND_IMAGE" \
+        .
+    - docker push "$FRONTEND_IMAGE"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$FRONTEND_IMAGE" "$CI_REGISTRY_IMAGE/frontend:latest"
+        docker push "$CI_REGISTRY_IMAGE/frontend:latest"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+# -------------------------------------------------------------------- deploy --
+# Despliegue automático en la rama por defecto y en tags. Ejecuta en el
+# servidor, por SSH, `docker compose pull && up -d --wait` con las imágenes del
+# registry (docker-compose.ci.yml). No sobreescribe el `.env` del servidor.
+deploy:production:
+  stage: deploy
+  image: docker:27-cli
+  # Un despliegue a producción no debe cancelarse si llega un pipeline nuevo.
+  interruptible: false
+  needs:
+    - build:api
+    - build:frontend
+  variables:
+    DEPLOY_HEALTHCHECK_PATH: "/api/health"
+  before_script:
+    - apk add --no-cache openssh-client curl
+    - eval "$(ssh-agent -s)"
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        export IMAGE_TAG="$CI_COMMIT_TAG"
+      else
+        export IMAGE_TAG="$CI_COMMIT_SHORT_SHA"
+      fi
+    - echo "Desplegando la etiqueta $IMAGE_TAG en $SSH_HOST:$DEPLOY_PATH"
+  script:
+    # La contraseña del registry viaja por stdin de ssh (no en la línea de
+    # comandos del servidor). El `.env` del servidor se conserva intacto.
+    - |
+      echo "$CI_REGISTRY_PASSWORD" | ssh "$SSH_USER@$SSH_HOST" "
+        set -e
+        cd '$DEPLOY_PATH'
+        docker login -u '$CI_REGISTRY_USER' --password-stdin '$CI_REGISTRY'
+        export CI_REGISTRY_IMAGE='$CI_REGISTRY_IMAGE'
+        export IMAGE_TAG='$IMAGE_TAG'
+        docker compose -f docker-compose.yml -f docker-compose.ci.yml pull
+        docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --no-build --wait --wait-timeout 300
+      "
+    # Verificación del healthcheck a través del proxy TLS (SITE_ADDRESS del
+    # .env del servidor; `localhost` usa la CA interna de Caddy).
+    - |
+      SITE_ADDRESS_REMOTO="$(ssh "$SSH_USER@$SSH_HOST" "grep -E '^SITE_ADDRESS=' '$DEPLOY_PATH/.env' 2>/dev/null | tail -1 | cut -d= -f2-")"
+      SITE_ADDRESS_REMOTO="${SITE_ADDRESS_REMOTO:-localhost}"
+      echo "Verificando https://$SITE_ADDRESS_REMOTO$DEPLOY_HEALTHCHECK_PATH"
+      curl -fsk "https://$SITE_ADDRESS_REMOTO$DEPLOY_HEALTHCHECK_PATH"
+  environment:
+    name: production
+    url: "https://$SITE_ADDRESS"
+  resource_group: production
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+

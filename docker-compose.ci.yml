@@ -1,0 +1,29 @@
+# docker-compose.ci.yml — Override para el pipeline de GitLab (CI/CD).
+#
+# No sustituye a `docker-compose.yml`: se usa SIEMPRE junto a él, desde el job
+# `deploy` del pipeline:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.ci.yml pull
+#     docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --no-build --wait
+#
+# Motivo: en `docker-compose.yml`, api y frontend se construyen en local
+# (`build:` + `image: asistente-uao-*:${IMAGE_TAG}`). Aquí se apunta su `image:`
+# a las imágenes publicadas en el Container Registry por los jobs `build:api` y
+# `build:frontend`, de modo que el servidor solo descargue (no compile).
+# El resto de servicios (proxy, redis, mlflow) ya usan imágenes de Docker Hub /
+# GHCR y no necesitan override.
+#
+# Variables requeridas (las exporta el job `deploy`):
+#   - CI_REGISTRY_IMAGE: la define GitLab (Settings → CI/CD → Variables, o el
+#     propio runner) con la ruta base del registry del proyecto.
+#   - IMAGE_TAG: etiqueta de la build ($CI_COMMIT_TAG o $CI_COMMIT_SHORT_SHA).
+#
+# El `.env` del servidor (secretos, SITE_ADDRESS, TLS_DIRECTIVE…) lo sigue
+# leyendo `docker-compose.yml`; este archivo no lo toca.
+
+services:
+  api:
+    image: ${CI_REGISTRY_IMAGE:?CI_REGISTRY_IMAGE no está definido}/api:${IMAGE_TAG:?IMAGE_TAG no está definido}
+
+  frontend:
+    image: ${CI_REGISTRY_IMAGE:?CI_REGISTRY_IMAGE no está definido}/frontend:${IMAGE_TAG:?IMAGE_TAG no está definido}
