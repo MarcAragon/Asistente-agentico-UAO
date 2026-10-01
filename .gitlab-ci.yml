@@ -225,7 +225,7 @@ deploy:production:
       fi
       export API_IMAGE="$CI_REGISTRY_IMAGE/api:$IMAGE_TAG"
       export FRONTEND_IMAGE="$CI_REGISTRY_IMAGE/frontend:$IMAGE_TAG"
-      - 'echo "Etiqueta de imágenes: $IMAGE_TAG"'
+    - 'echo "Etiqueta de imágenes: $IMAGE_TAG"'
   script:
     # La contraseña del registry viaja por stdin de ssh (no en la línea de
     # comandos del servidor). El `.env` del servidor se conserva intacto.
