@@ -13,15 +13,14 @@ Las pruebas cubren:
 - Validaciones adicionales del contrato HTTP.
 """
 
-
 import pytest
 from fastapi.testclient import TestClient
 
 from asistente_agentico_uao.api.main import create_app
-from asistente_agentico_uao.config import Settings
-from asistente_agentico_uao.llm import NO_INFO_MESSAGE
-from asistente_agentico_uao.retrieval import RetrievedChunk
-from asistente_agentico_uao.service import AppState
+from asistente_agentico_uao.core.config import Settings
+from asistente_agentico_uao.core.llm import NO_INFO_MESSAGE
+from asistente_agentico_uao.rag.retrieval import RetrievedChunk
+from asistente_agentico_uao.rag.service import AppState
 
 
 def make_chunk(
@@ -112,9 +111,7 @@ class ExplodingRetriever(FakeRetriever):
     """Retriever que genera errores."""
 
     def retrieve(self, question):
-        raise RuntimeError(
-            "índice no disponible"
-        )
+        raise RuntimeError("índice no disponible")
 
 
 def make_state(
@@ -171,9 +168,7 @@ def client():
         ),
     )
 
-    llm = FakeLLM(
-        "Respuesta con cita (Res-CA-6744.md, Artículo 70º-2)."
-    )
+    llm = FakeLLM("Respuesta con cita (Res-CA-6744.md, Artículo 70º-2).")
 
     with make_client(
         make_state(
@@ -191,9 +186,7 @@ def test_ask_flujo_feliz_con_fuentes(client):
 
     response = c.post(
         "/ask",
-        json={
-            "question": "¿cuántas repitencias?"
-        },
+        json={"question": "¿cuántas repitencias?"},
     )
 
     assert response.status_code == 200
@@ -202,9 +195,7 @@ def test_ask_flujo_feliz_con_fuentes(client):
 
     assert body["model"] == "qwen-3.8-27b"
     assert body["used_fallback"] is False
-    assert retriever.questions == [
-        "¿cuántas repitencias?"
-    ]
+    assert retriever.questions == ["¿cuántas repitencias?"]
 
 
 def test_ask_pregunta_vacia_o_blancos_422(client):
@@ -273,9 +264,7 @@ def test_ask_sin_api_key_503():
 def test_ask_fallo_interno_500():
     """Verifica error interno."""
 
-    state = make_state(
-        ExplodingRetriever([])
-    )
+    state = make_state(ExplodingRetriever([]))
 
     with make_client(state) as c:
         response = c.post(
@@ -345,9 +334,7 @@ def test_ask_rechaza_question_no_string(client):
 
     response = c.post(
         "/ask",
-        json={
-            "question": 123
-        },
+        json={"question": 123},
     )
 
     assert response.status_code == 422

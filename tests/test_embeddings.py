@@ -1,6 +1,6 @@
 import numpy as np
 
-from asistente_agentico_uao.embeddings import (
+from asistente_agentico_uao.core.embeddings import (
     embed_passages,
     embed_query,
 )
@@ -17,15 +17,13 @@ def test_embed_query_uses_query_prefix(monkeypatch):
             return np.array([[0.1, 0.2, 0.3]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
     result = embed_query("¿Cuál es la fecha de cancelaciones?")
 
-    assert captured_texts == [
-        "query: ¿Cuál es la fecha de cancelaciones?"
-    ]
+    assert captured_texts == ["query: ¿Cuál es la fecha de cancelaciones?"]
     assert result.shape == (3,)
 
 
@@ -45,13 +43,11 @@ def test_embed_passages_uses_passage_prefix(monkeypatch):
             )
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
-    result = embed_passages(
-        ["Primer documento", "Segundo documento"]
-    )
+    result = embed_passages(["Primer documento", "Segundo documento"])
 
     assert captured_texts == [
         "passage: Primer documento",
@@ -68,7 +64,7 @@ def test_embed_query_returns_numpy_array(monkeypatch):
             return np.array([[0.5, 0.6, 0.7]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -88,7 +84,7 @@ def test_embed_query_handles_empty_question(monkeypatch):
             return np.array([[0.1, 0.2]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -106,7 +102,7 @@ def test_embed_passages_returns_numpy_array(monkeypatch):
             return np.array([[0.1, 0.2]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -123,7 +119,7 @@ def test_embed_passages_empty_list(monkeypatch):
             return np.array([])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -148,7 +144,7 @@ def test_embed_passages_preserves_document_order(monkeypatch):
             )
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -172,7 +168,7 @@ def test_embed_query_uses_model_encode(monkeypatch):
             return np.array([[1, 2, 3]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -194,7 +190,7 @@ def test_embed_query_preserves_embedding_values(monkeypatch):
             return np.array([[0.8, 0.9]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -214,7 +210,7 @@ def test_embed_passages_handles_multiple_documents(monkeypatch):
             return np.ones((len(texts), 3))
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -241,7 +237,7 @@ def test_embed_query_calls_model_once(monkeypatch):
             return np.array([[1, 1]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -262,7 +258,7 @@ def test_embed_passages_calls_model_once(monkeypatch):
             return np.array([[1, 2]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -287,15 +283,13 @@ def test_embed_query_handles_unicode_text(monkeypatch):
             return np.array([[1]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
     embed_query("¿Información académica?")
 
-    assert captured == [
-        "query: ¿Información académica?"
-    ]
+    assert captured == ["query: ¿Información académica?"]
 
 
 def test_embed_passages_handles_unicode_documents(monkeypatch):
@@ -309,7 +303,7 @@ def test_embed_passages_handles_unicode_documents(monkeypatch):
             return np.array([[1]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 
@@ -319,9 +313,7 @@ def test_embed_passages_handles_unicode_documents(monkeypatch):
         ]
     )
 
-    assert captured == [
-        "passage: Artículo académico ñ"
-    ]
+    assert captured == ["passage: Artículo académico ñ"]
 
 
 def test_embed_query_returns_flat_vector(monkeypatch):
@@ -332,7 +324,7 @@ def test_embed_query_returns_flat_vector(monkeypatch):
             return np.array([[1, 2, 3, 4]])
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.embeddings.get_model",
+        "asistente_agentico_uao.core.embeddings.get_model",
         lambda: FakeModel(),
     )
 

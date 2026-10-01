@@ -2,7 +2,7 @@
 
 import pytest
 
-from asistente_agentico_uao import config
+from asistente_agentico_uao.core import config
 
 
 def test_resolve_embedding_device_returns_configured_device(monkeypatch):
@@ -42,10 +42,7 @@ def test_settings_has_default_chunk_values():
 
 def test_chunk_overlap_is_smaller_than_chunk_size():
     """Verifica que el solapamiento no supere el tamaño del chunk."""
-    assert (
-        config.settings.chunk_overlap_tokens
-        < config.settings.chunk_size_tokens
-    )
+    assert config.settings.chunk_overlap_tokens < config.settings.chunk_size_tokens
 
 
 def test_embedding_model_is_defined():

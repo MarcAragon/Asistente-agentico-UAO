@@ -13,7 +13,6 @@ import httpx
 
 from asistente_agentico_uao.frontend.client import preguntar_api
 
-
 URL_PRUEBA = "http://localhost:8000/ask"
 
 
@@ -76,9 +75,7 @@ def test_pregunta_exitosa_devuelve_respuesta_y_fuentes(monkeypatch):
         ),
     )
 
-    mensaje = preguntar_api(
-        "¿Que pasa si repruebo tres veces?"
-    )
+    mensaje = preguntar_api("¿Que pasa si repruebo tres veces?")
 
     assert mensaje["rol"] == "assistant"
     assert mensaje["texto"] == payload["answer"]
@@ -110,9 +107,7 @@ def test_error_503_sin_api_key(monkeypatch):
         lambda *a, **k: _respuesta(503),
     )
 
-    mensaje = preguntar_api(
-        "¿Cualquier pregunta?"
-    )
+    mensaje = preguntar_api("¿Cualquier pregunta?")
 
     assert mensaje["fallback"] is True
     assert "CEREBRAS_API_KEY" in mensaje["texto"]
@@ -127,9 +122,7 @@ def test_error_500_interno(monkeypatch):
         lambda *a, **k: _respuesta(500),
     )
 
-    mensaje = preguntar_api(
-        "¿Cualquier pregunta?"
-    )
+    mensaje = preguntar_api("¿Cualquier pregunta?")
 
     assert mensaje["fallback"] is True
     assert "500" in mensaje["texto"]
@@ -141,9 +134,7 @@ def test_error_conexion(monkeypatch):
     def _lanzar(*args, **kwargs):
         """Simula una falla de conexión HTTP."""
 
-        raise httpx.ConnectError(
-            "no se pudo conectar"
-        )
+        raise httpx.ConnectError("no se pudo conectar")
 
     monkeypatch.setattr(
         httpx,
@@ -151,9 +142,7 @@ def test_error_conexion(monkeypatch):
         _lanzar,
     )
 
-    mensaje = preguntar_api(
-        "¿Cualquier pregunta?"
-    )
+    mensaje = preguntar_api("¿Cualquier pregunta?")
 
     assert mensaje["fallback"] is True
     assert "No se pudo conectar" in mensaje["texto"]

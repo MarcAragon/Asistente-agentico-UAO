@@ -107,9 +107,7 @@ class FakeState:
             )
         )
 
-        self.config = SimpleNamespace(
-            embedding_model="fake-model"
-        )
+        self.config = SimpleNamespace(embedding_model="fake-model")
 
         self.device = "cpu"
         self.rebuilds = 0
@@ -154,9 +152,7 @@ async def _serve(servicer: IndexAdminServicer):
         server,
     )
 
-    port = server.add_insecure_port(
-        "localhost:0"
-    )
+    port = server.add_insecure_port("localhost:0")
 
     await server.start()
 
@@ -219,25 +215,16 @@ def test_ingest_emite_progreso_en_streaming(monkeypatch):
 
         state = FakeState()
 
-        server, port = await _serve(
-            IndexAdminServicer(state)
-        )
+        server, port = await _serve(IndexAdminServicer(state))
 
         try:
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}"
-            ) as channel:
-
-                stub = index_admin_pb2_grpc.IndexAdminStub(
-                    channel
-                )
+            async with grpc.aio.insecure_channel(f"localhost:{port}") as channel:
+                stub = index_admin_pb2_grpc.IndexAdminStub(channel)
 
                 progress = [
                     item
                     async for item in stub.Ingest(
-                        index_admin_pb2.IngestRequest(
-                            rebuild=True
-                        ),
+                        index_admin_pb2.IngestRequest(rebuild=True),
                         timeout=10,
                     )
                 ]
@@ -282,27 +269,15 @@ def test_ingest_sin_markdown_invalid_argument(monkeypatch):
             lambda fm=None: [],
         )
 
-        server, port = await _serve(
-            IndexAdminServicer(
-                FakeState()
-            )
-        )
+        server, port = await _serve(IndexAdminServicer(FakeState()))
 
         try:
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}"
-            ) as channel:
-
-                stub = index_admin_pb2_grpc.IndexAdminStub(
-                    channel
-                )
+            async with grpc.aio.insecure_channel(f"localhost:{port}") as channel:
+                stub = index_admin_pb2_grpc.IndexAdminStub(channel)
 
                 with pytest.raises(grpc.RpcError) as exc_info:
-
                     async for _ in stub.Ingest(
-                        index_admin_pb2.IngestRequest(
-                            file_match="nada"
-                        ),
+                        index_admin_pb2.IngestRequest(file_match="nada"),
                         timeout=10,
                     ):
                         pass
@@ -310,9 +285,7 @@ def test_ingest_sin_markdown_invalid_argument(monkeypatch):
         finally:
             await server.stop(None)
 
-        assert exc_info.value.code() == (
-            grpc.StatusCode.INVALID_ARGUMENT
-        )
+        assert exc_info.value.code() == (grpc.StatusCode.INVALID_ARGUMENT)
 
     scenario()
 
@@ -328,9 +301,7 @@ def test_ingest_fallo_interno(monkeypatch):
             rebuild=False,
             on_summary=None,
         ):
-            raise RuntimeError(
-                "embeddings caídos"
-            )
+            raise RuntimeError("embeddings caídos")
 
         monkeypatch.setattr(
             servicer_mod,
@@ -344,23 +315,13 @@ def test_ingest_fallo_interno(monkeypatch):
             fake_ingest,
         )
 
-        server, port = await _serve(
-            IndexAdminServicer(
-                FakeState()
-            )
-        )
+        server, port = await _serve(IndexAdminServicer(FakeState()))
 
         try:
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}"
-            ) as channel:
-
-                stub = index_admin_pb2_grpc.IndexAdminStub(
-                    channel
-                )
+            async with grpc.aio.insecure_channel(f"localhost:{port}") as channel:
+                stub = index_admin_pb2_grpc.IndexAdminStub(channel)
 
                 with pytest.raises(grpc.RpcError) as exc_info:
-
                     async for _ in stub.Ingest(
                         index_admin_pb2.IngestRequest(),
                         timeout=10,
@@ -370,9 +331,7 @@ def test_ingest_fallo_interno(monkeypatch):
         finally:
             await server.stop(None)
 
-        assert exc_info.value.code() == (
-            grpc.StatusCode.INTERNAL
-        )
+        assert exc_info.value.code() == (grpc.StatusCode.INTERNAL)
 
     scenario()
 
@@ -389,20 +348,11 @@ def test_prune_index(monkeypatch):
             lambda: 7,
         )
 
-        server, port = await _serve(
-            IndexAdminServicer(
-                FakeState()
-            )
-        )
+        server, port = await _serve(IndexAdminServicer(FakeState()))
 
         try:
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}"
-            ) as channel:
-
-                stub = index_admin_pb2_grpc.IndexAdminStub(
-                    channel
-                )
+            async with grpc.aio.insecure_channel(f"localhost:{port}") as channel:
+                stub = index_admin_pb2_grpc.IndexAdminStub(channel)
 
                 response = await stub.PruneIndex(
                     index_admin_pb2.Empty(),
@@ -423,20 +373,11 @@ def test_index_status(monkeypatch):
     @grpc_test
     async def scenario():
 
-        server, port = await _serve(
-            IndexAdminServicer(
-                FakeState()
-            )
-        )
+        server, port = await _serve(IndexAdminServicer(FakeState()))
 
         try:
-            async with grpc.aio.insecure_channel(
-                f"localhost:{port}"
-            ) as channel:
-
-                stub = index_admin_pb2_grpc.IndexAdminStub(
-                    channel
-                )
+            async with grpc.aio.insecure_channel(f"localhost:{port}") as channel:
+                stub = index_admin_pb2_grpc.IndexAdminStub(channel)
 
                 response = await stub.IndexStatus(
                     index_admin_pb2.Empty(),

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from asistente_agentico_uao.retrieval import Retriever, format_context
+from asistente_agentico_uao.rag.retrieval import Retriever, format_context
 
 
 class FakeCollection:
@@ -58,7 +58,7 @@ def test_retrieve_filters_sorts_and_limits_results(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.retrieval.embed_query",
+        "asistente_agentico_uao.rag.retrieval.embed_query",
         lambda question: np.array([0.1, 0.2, 0.3]),
     )
 
@@ -116,16 +116,8 @@ def test_format_context_numbers_chunks():
 
     context = format_context(chunks)
 
-    assert (
-        "[1] (reglamento.md — Artículo 10): "
-        "Contenido del artículo."
-        in context
-    )
-    assert (
-        "[2] (calendario.md — Cancelaciones): "
-        "Fecha de cancelación."
-        in context
-    )
+    assert "[1] (reglamento.md — Artículo 10): Contenido del artículo." in context
+    assert "[2] (calendario.md — Cancelaciones): Fecha de cancelación." in context
 
 
 def test_retrieve_respects_top_k_limit(monkeypatch):
@@ -170,7 +162,7 @@ def test_retrieve_respects_top_k_limit(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.retrieval.embed_query",
+        "asistente_agentico_uao.rag.retrieval.embed_query",
         lambda question: np.array([1, 2, 3]),
     )
 
@@ -205,7 +197,7 @@ def test_retrieve_marks_table_chunks(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "asistente_agentico_uao.retrieval.embed_query",
+        "asistente_agentico_uao.rag.retrieval.embed_query",
         lambda question: np.array([1, 2, 3]),
     )
 

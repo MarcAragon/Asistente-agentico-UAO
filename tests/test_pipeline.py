@@ -11,7 +11,8 @@ embeddings o una base de datos vectorial Chroma durante la ejecución.
 import numpy as np
 import pytest
 
-from asistente_agentico_uao.config import settings
+from asistente_agentico_uao.core.config import settings
+from asistente_agentico_uao.core.vectorstore import chunk_id
 from asistente_agentico_uao.ingestion.pipeline import (
     IngestSummary,
     ingest_documents,
@@ -19,7 +20,6 @@ from asistente_agentico_uao.ingestion.pipeline import (
     prune_index,
     validate_chunk_budget,
 )
-from asistente_agentico_uao.vectorstore import chunk_id
 
 
 class FakeCollection:
@@ -174,9 +174,7 @@ def test_ingest_filtra_por_file_match(index_dirs, monkeypatch):
         file_match="prueba",
     )
 
-    assert [s.doc_name for s in summaries] == [
-        "Doc-Prueba.pdf"
-    ]
+    assert [s.doc_name for s in summaries] == ["Doc-Prueba.pdf"]
 
 
 def test_ingest_sin_markdown_raise_valueerror(index_dirs):
@@ -234,6 +232,4 @@ def test_markdown_paths_ordenados_y_filtrados(index_dirs):
         "Otro-Doc.md",
     ]
 
-    assert [p.name for p in markdown_paths("otro")] == [
-        "Otro-Doc.md"
-    ]
+    assert [p.name for p in markdown_paths("otro")] == ["Otro-Doc.md"]

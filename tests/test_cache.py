@@ -8,9 +8,9 @@ from __future__ import annotations
 import fakeredis
 import pytest
 
-from asistente_agentico_uao.cache import SemanticCache
-from asistente_agentico_uao.chain import RagAnswer, Source
-from asistente_agentico_uao.config import Settings
+from asistente_agentico_uao.core.config import Settings
+from asistente_agentico_uao.rag.cache import SemanticCache
+from asistente_agentico_uao.rag.chain import RagAnswer, Source
 
 
 @pytest.fixture
@@ -52,9 +52,7 @@ def test_hit_por_pregunta_identica(cache):
         RESPUESTA_EJEMPLO,
     )
 
-    encontrada = cache.buscar(
-        "¿Que pasa si repruebo tres veces una asignatura?"
-    )
+    encontrada = cache.buscar("¿Que pasa si repruebo tres veces una asignatura?")
 
     assert encontrada is not None
     assert encontrada.answer == RESPUESTA_EJEMPLO.answer
@@ -68,45 +66,33 @@ def test_miss_pregunta_sin_relacion(cache):
         RESPUESTA_EJEMPLO,
     )
 
-    encontrada = cache.buscar(
-        "¿Cual es la receta de las arepas?"
-    )
+    encontrada = cache.buscar("¿Cual es la receta de las arepas?")
 
     assert encontrada is None
 
 
 @pytest.mark.slow
 def test_miss_con_cache_vacio(cache):
-    assert cache.buscar(
-        "cualquier pregunta"
-    ) is None
+    assert cache.buscar("cualquier pregunta") is None
 
 
 def test_degradacion_sin_redis():
     """Sin conexion a Redis la aplicación continúa funcionando."""
 
-    config = Settings(
-        redis_url="redis://host-que-no-existe:6379/0"
-    )
+    config = Settings(redis_url="redis://host-que-no-existe:6379/0")
 
-    cache = SemanticCache(
-        config=config
-    )
+    cache = SemanticCache(config=config)
 
     cache.guardar(
         "una pregunta",
         RESPUESTA_EJEMPLO,
     )
 
-    assert cache.buscar(
-        "una pregunta"
-    ) is None
+    assert cache.buscar("una pregunta") is None
 
 
 def test_degradacion_con_cache_deshabilitado(cliente_falso):
-    config = Settings(
-        cache_enabled=False
-    )
+    config = Settings(cache_enabled=False)
 
     cache = SemanticCache(
         config=config,
@@ -118,9 +104,7 @@ def test_degradacion_con_cache_deshabilitado(cliente_falso):
         RESPUESTA_EJEMPLO,
     )
 
-    assert cache.buscar(
-        "una pregunta"
-    ) is None
+    assert cache.buscar("una pregunta") is None
 
 
 @pytest.mark.slow
@@ -132,9 +116,7 @@ def test_invalidar_todo(cache):
 
     cache.invalidar_todo()
 
-    assert cache.buscar(
-        "¿Que pasa si repruebo tres veces una asignatura?"
-    ) is None
+    assert cache.buscar("¿Que pasa si repruebo tres veces una asignatura?") is None
 
 
 @pytest.mark.slow
@@ -144,13 +126,9 @@ def test_estadisticas_hit_miss(cache):
         RESPUESTA_EJEMPLO,
     )
 
-    cache.buscar(
-        "¿Que pasa si repruebo tres veces una asignatura?"
-    )
+    cache.buscar("¿Que pasa si repruebo tres veces una asignatura?")
 
-    cache.buscar(
-        "¿Cual es la receta de las arepas?"
-    )
+    cache.buscar("¿Cual es la receta de las arepas?")
 
     stats = cache.estadisticas()
 
@@ -179,9 +157,7 @@ def test_guardar_y_recuperar_varias_respuestas(cache):
         segunda_respuesta,
     )
 
-    resultado = cache.buscar(
-        "Pregunta dos"
-    )
+    resultado = cache.buscar("Pregunta dos")
 
     assert resultado is not None
     assert resultado.answer == segunda_respuesta.answer
@@ -202,9 +178,7 @@ def test_cache_respuesta_con_fuentes_vacias(cache):
         respuesta,
     )
 
-    resultado = cache.buscar(
-        "Pregunta sin fuentes"
-    )
+    resultado = cache.buscar("Pregunta sin fuentes")
 
     assert resultado is not None
     assert resultado.sources == []
@@ -265,9 +239,7 @@ def test_cache_retorna_mismo_modelo_guardado(cache):
         RESPUESTA_EJEMPLO,
     )
 
-    resultado = cache.buscar(
-        "Pregunta modelo"
-    )
+    resultado = cache.buscar("Pregunta modelo")
 
     assert resultado.model == "qwen-3.8-27b"
 
@@ -287,9 +259,7 @@ def test_cache_conserva_estado_fallback(cache):
         respuesta,
     )
 
-    resultado = cache.buscar(
-        "Pregunta fallback"
-    )
+    resultado = cache.buscar("Pregunta fallback")
 
     assert resultado.used_fallback is True
 
@@ -302,9 +272,7 @@ def test_cache_fuente_conserva_score(cache):
         RESPUESTA_EJEMPLO,
     )
 
-    resultado = cache.buscar(
-        "Pregunta score"
-    )
+    resultado = cache.buscar("Pregunta score")
 
     assert resultado.sources[0].score == 0.88
 
