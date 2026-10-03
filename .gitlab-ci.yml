@@ -70,8 +70,10 @@ default:
 
 # Entorno Python gestionado con uv (lint y test).
 .python:
-  image: ghcr.io/astral-sh/uv:${UV_VERSION}-python${PYTHON_VERSION}-${BASE_LAYER}
+  image: python:${PYTHON_VERSION}-slim
   extends: .uv-cache
+  before_script:
+    - python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 
 # Docker-in-Docker para construir las imágenes en el runner.
 .docker:
