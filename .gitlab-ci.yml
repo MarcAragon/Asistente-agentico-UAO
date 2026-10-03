@@ -245,11 +245,12 @@ deploy:production:
     - |
       SITE_ADDRESS_REMOTO="$(ssh "$SSH_USER@$SSH_HOST" "grep -E '^SITE_ADDRESS=' '$DEPLOY_PATH/.env' 2>/dev/null | tail -1 | cut -d= -f2-")"
       SITE_ADDRESS_REMOTO="${SITE_ADDRESS_REMOTO:-localhost}"
-      echo "Verificando https://$SITE_ADDRESS_REMOTO$DEPLOY_HEALTHCHECK_PATH"
-      curl -fsk "https://$SITE_ADDRESS_REMOTO$DEPLOY_HEALTHCHECK_PATH"
+      echo "Verificando http://$SITE_ADDRESS_REMOTO$DEPLOY_HEALTHCHECK_PATH"
+      curl -fs "http://$SITE_ADDRESS_REMOTO$DEPLOY_HEALTHCHECK_PATH"
   environment:
     name: production
-    url: "https://$SITE_ADDRESS"
+    url: "http://$SITE_ADDRESS"
+
   resource_group: production
   retry:
     max: 1

@@ -18,21 +18,15 @@
 #                  certificado automáticamente (persistido en el volumen
 #                  caddy_data).
 
-{$SITE_ADDRESS:localhost} {
-	encode zstd gzip
+http://{$SITE_ADDRESS:localhost} {
+    encode zstd gzip
 
-	# `internal` = CA propia de Caddy (sin Internet ni DNS).
-	# Con TLS_DIRECTIVE=correo@dominio Caddy usa ACME y renueva solo.
-	tls {$TLS_DIRECTIVE:internal}
-
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		-Server
-	}
-
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
 	handle /healthz {
 		respond "ok" 200
 	}
