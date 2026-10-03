@@ -15,6 +15,7 @@ dependencies = [
     "langchain-chroma>=1.1.0",
     "pydantic-settings>=2.15.0",
     "sentence-transformers>=6.0.1",
+    "torch>=2.14.0",
     "uvicorn[standard]>=0.52.4",
     "llama-cloud>=2.16.0",
     "grpcio>=1.83.1",
@@ -53,3 +54,11 @@ markers = [
 filterwarnings = [
     "ignore:The anyio\\.abc\\.BlockingPortal alias is deprecated:DeprecationWarning",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
