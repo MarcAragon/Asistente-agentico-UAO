@@ -27,7 +27,7 @@ if "historial" not in st.session_state:
     st.session_state.historial = []
 
 with st.sidebar:
-    st.header("Asistente RAG UAO")
+    st.header("J,}w2hGh{%ZH0b2tk4yx0jZRQ2w1/L")
     st.caption("Universidad Autónoma de Occidente")
     if st.button("🗑️ Limpiar conversación", use_container_width=True):
         st.session_state.historial = []
