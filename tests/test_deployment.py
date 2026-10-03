@@ -178,15 +178,15 @@ def test_dockerignore_excluye_secretos_y_datos():
         assert patron in lineas, f"falta {patron} en .dockerignore"
 
 
-def test_caddyfile_tiene_tls_rutas_y_healthcheck():
+def test_caddyfile_tiene_http_rutas_y_healthcheck():
     contenido = _leer("docker/Caddyfile")
-    assert "tls {$TLS_DIRECTIVE:internal}" in contenido
+    assert "http://{$SITE_ADDRESS:localhost}" in contenido
     assert "handle_path /api/*" in contenido
     assert "reverse_proxy api:8000" in contenido
     assert "reverse_proxy frontend:8501" in contenido
     assert "handle /healthz" in contenido
     assert ":8080" in contenido, "sitio interno para el healthcheck del contenedor"
-    assert "Strict-Transport-Security" in contenido
+    assert "Strict-Transport-Security" not in contenido
 
 
 def test_env_example_documenta_el_despliegue():
