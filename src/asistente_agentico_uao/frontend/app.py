@@ -16,7 +16,7 @@ PREGUNTAS_EJEMPLO = [
 
 st.set_page_config(page_title="Asistente RAG UAO", page_icon="🎓")
 st.title("Asistente RAG UAO")
-st.caption("Preguntas sobre normativa institucional de la UAO")
+st.caption("Preguntas sobre normativa institucional de la UAO · CI/CD automático")
 st.info(
     "Las respuestas son orientativas y citan la fuente oficial de cada dato; "
     "no reemplazan la asesoría de Secretaría Académica o Bienestar Universitario. "
