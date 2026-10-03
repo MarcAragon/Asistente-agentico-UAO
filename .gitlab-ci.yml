@@ -159,7 +159,7 @@ build:api:
       docker build \
         --build-arg BUILDKIT_INLINE_CACHE=1 \
         --cache-from "$CI_REGISTRY_IMAGE/api:latest" \
-        -f docker/Dockerfile \
+        -f docker/Dockerfile.cpu \
         -t "$API_IMAGE" \
         .
     - docker push "$API_IMAGE"
